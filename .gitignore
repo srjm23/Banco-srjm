@@ -1,0 +1,57 @@
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+replay_pid*
+
+# Maven local metadata
+.mvn/timing.properties
+.flattened-pom.xml
+dependency-reduced-pom.xml
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+
+# Test and analysis reports
+surefire-reports/
+failsafe-reports/
+.scannerwork/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local runtime data
+logs/
+tmp/
+*.pid
+*.pid.lock
