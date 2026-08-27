@@ -1,0 +1,2 @@
+ALTER TABLE accounts
+    ADD COLUMN administrator BOOLEAN NOT NULL DEFAULT FALSE;

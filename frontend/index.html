@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#101828">
+    <title>Banco SRJM | Painel digital</title>
+    <link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+    <section class="landing-page" id="landing-page">
+        <div class="landing-content">
+            <div class="landing-brand" aria-label="Banco SRJM">
+                <span class="brand-mark" aria-hidden="true">B</span>
+                <span>
+                    <strong>Banco</strong>
+                    <small>SRJM</small>
+                </span>
+            </div>
+            <p class="landing-eyebrow">Conta digital Banco SRJM</p>
+            <h1>Seu dinheiro, rendendo no ritmo da sua rotina</h1>
+            <p class="landing-subtitle">Uma experiência simples e segura para cuidar da sua vida financeira.</p>
+            <div class="landing-actions">
+                <button class="button button-primary" id="login-trigger" type="button">Entrar</button>
+                <button class="button button-secondary new-account-trigger" type="button">Abrir conta</button>
+            </div>
+        </div>
+    </section>
+
+    <div class="app-shell hidden" id="authenticated-app">
+        <aside class="sidebar">
+            <a class="brand" href="/" aria-label="Banco SRJM">
+                <span class="brand-mark" aria-hidden="true">B</span>
+                <span>
+                    <strong>Banco</strong>
+                    <small>SRJM</small>
+                </span>
+            </a>
+
+            <nav class="nav-menu" aria-label="Navegação principal">
+                <a class="nav-item active" href="#dashboard">
+                    <span class="nav-icon">⌂</span>
+                    Visão geral
+                </a>
+                <a class="nav-item" href="#operations">
+                    <span class="nav-icon">↗</span>
+                    Movimentações
+                </a>
+                <a class="nav-item" href="#statement">
+                    <span class="nav-icon">≡</span>
+                    Extrato
+                </a>
+                <a class="nav-item hidden" id="admin-nav-item" href="#admin">
+                    <span class="nav-icon">⚙</span>
+                    Administrador
+                </a>
+            </nav>
+
+            <div class="sidebar-note">
+                <span class="status-dot"></span>
+                <div>
+                    <strong>Ambiente seguro</strong>
+                    <small>Dados protegidos por transação</small>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content" id="dashboard">
+            <header class="topbar">
+                <div class="mobile-brand">
+                    <span class="brand-mark">B</span>
+                    <strong>Banco SRJM</strong>
+                </div>
+
+                <div class="account-switcher">
+                    <button class="button button-quiet" id="logout-button" type="button">Sair</button>
+                </div>
+            </header>
+
+            <section class="welcome-row">
+                <div>
+                    <p class="eyebrow">Painel financeiro</p>
+                    <h1>Seu dinheiro, no ritmo da sua rotina.</h1>
+                    <p class="subtle">Faça movimentações, acompanhe o saldo e consulte o extrato em tempo real.</p>
+                </div>
+                <div class="date-chip" id="today-date">27 de agosto de 2026</div>
+            </section>
+
+            <section class="hero-grid" aria-label="Resumo da conta">
+                <article class="balance-card">
+                    <div class="balance-card-top">
+                        <span class="card-label">Saldo disponível</span>
+                        <span class="visibility-icon" aria-hidden="true">◉</span>
+                    </div>
+                    <strong class="balance-value" id="account-balance">R$ 0,00</strong>
+                    <div class="balance-card-footer">
+                        <div>
+                            <span class="account-holder" id="account-holder">Nenhum cliente autenticado</span>
+                            <small id="account-display-reference">Faça login para acessar sua conta</small>
+                        </div>
+                        <span class="status-pill neutral" id="account-status">Sem conta</span>
+                    </div>
+                    <div class="card-orb orb-one"></div>
+                    <div class="card-orb orb-two"></div>
+                </article>
+
+                <article class="info-card">
+                    <div class="info-card-title">
+                        <div>
+                            <span class="eyebrow">Conta digital</span>
+                            <h2>Detalhes da conta</h2>
+                        </div>
+                        <span class="info-icon">⌁</span>
+                    </div>
+                    <dl class="account-details">
+                        <div>
+                            <dt>Número</dt>
+                            <dd id="account-number">—</dd>
+                        </div>
+                        <div>
+                            <dt>Dígito verificador</dt>
+                            <dd id="account-digit">—</dd>
+                        </div>
+                        <div>
+                            <dt>Desde</dt>
+                            <dd id="account-created">—</dd>
+                        </div>
+                    </dl>
+                    <div class="admin-status">
+                        <label for="status-select">Status da conta <span>Admin</span></label>
+                        <div>
+                            <select id="status-select" disabled>
+                                <option value="ATIVA">Ativa</option>
+                                <option value="BLOQUEADA">Bloqueada</option>
+                                <option value="ENCERRADA" disabled>Encerrada</option>
+                            </select>
+                            <button class="button button-quiet" id="update-status-button" type="button" disabled>Atualizar</button>
+                        </div>
+                    </div>
+                    <div class="account-lifecycle">
+                        <div>
+                            <strong>Encerrar conta</strong>
+                            <small>Disponível apenas para conta ativa com saldo zerado.</small>
+                        </div>
+                        <button class="button button-danger" id="close-account-trigger" type="button" disabled>Encerrar</button>
+                    </div>
+                </article>
+            </section>
+
+            <section class="quick-actions" aria-label="Ações rápidas">
+                <button class="quick-action" data-action="deposit" type="button">
+                    <span class="quick-icon deposit-icon">↓</span>
+                    <span><strong>Depositar</strong><small>Adicionar saldo</small></span>
+                    <b>→</b>
+                </button>
+                <button class="quick-action" data-action="withdraw" type="button">
+                    <span class="quick-icon withdraw-icon">↑</span>
+                    <span><strong>Sacar</strong><small>Retirar valor</small></span>
+                    <b>→</b>
+                </button>
+                <button class="quick-action" data-action="pix" type="button">
+                    <span class="quick-icon pix-icon">✦</span>
+                    <span><strong>Fazer PIX</strong><small>Transferência interna</small></span>
+                    <b>→</b>
+                </button>
+                <button class="quick-action" data-action="account" type="button">
+                    <span class="quick-icon account-icon">＋</span>
+                    <span><strong>Nova conta</strong><small>Abertura digital</small></span>
+                    <b>→</b>
+                </button>
+            </section>
+
+            <section class="operations-section" id="operations">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Movimentações</p>
+                        <h2>Escolha uma operação</h2>
+                    </div>
+                    <span class="section-helper">Saques e PIX exigem senha.</span>
+                </div>
+
+                <div class="operation-tabs" role="tablist" aria-label="Operações bancárias">
+                    <button class="operation-tab active" data-operation="deposit" type="button">Depósito</button>
+                    <button class="operation-tab" data-operation="withdraw" type="button">Saque</button>
+                    <button class="operation-tab" data-operation="pix" type="button">PIX interno</button>
+                </div>
+
+                <div class="operation-panels">
+                    <form class="operation-panel active" id="deposit-form" data-panel="deposit">
+                        <div class="panel-intro">
+                            <span class="panel-icon deposit-icon">↓</span>
+                            <div>
+                                <h3>Depositar em dinheiro</h3>
+                                <p>Crédito imediato para uma conta ativa.</p>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <label>
+                                Conta
+                                <input class="current-account" name="account" readonly placeholder="Selecione uma conta">
+                            </label>
+                            <label>
+                                Valor
+                                <div class="currency-input"><span>R$</span><input class="money-input" name="amount" inputmode="numeric" placeholder="0,00" required></div>
+                            </label>
+                        </div>
+                        <button class="button button-primary" type="submit">Confirmar depósito</button>
+                    </form>
+
+                    <form class="operation-panel" id="withdraw-form" data-panel="withdraw">
+                        <div class="panel-intro">
+                            <span class="panel-icon withdraw-icon">↑</span>
+                            <div>
+                                <h3>Realizar saque</h3>
+                                <p>Débito validado por senha e saldo disponível.</p>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <label>
+                                Conta
+                                <input class="current-account" name="account" readonly placeholder="Selecione uma conta">
+                            </label>
+                            <label>
+                                Valor
+                                <div class="currency-input"><span>R$</span><input class="money-input" name="amount" inputmode="numeric" placeholder="0,00" required></div>
+                            </label>
+                            <label class="wide-field">
+                                Senha da conta
+                                <input name="password" type="password" minlength="6" placeholder="Digite sua senha" required>
+                            </label>
+                        </div>
+                        <button class="button button-primary" type="submit">Confirmar saque</button>
+                    </form>
+
+                    <form class="operation-panel" id="pix-form" data-panel="pix">
+                        <div class="panel-intro">
+                            <span class="panel-icon pix-icon">✦</span>
+                            <div>
+                                <h3>Transferir via PIX</h3>
+                                <p>Entre contas do próprio banco, com confirmação em uma única transação.</p>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <label>
+                                Conta de origem
+                                <input class="current-account" name="sourceAccount" readonly placeholder="Selecione uma conta">
+                            </label>
+                            <label>
+                                Conta de destino
+                                <input class="account-reference-input" name="destinationAccount" inputmode="numeric" maxlength="9" placeholder="Digite apenas os números" autocomplete="off" required>
+                            </label>
+                            <label>
+                                Valor
+                                <div class="currency-input"><span>R$</span><input class="money-input" name="amount" inputmode="numeric" placeholder="0,00" required></div>
+                            </label>
+                            <label>
+                                Senha da conta de origem
+                                <input name="password" type="password" minlength="6" placeholder="Digite sua senha" required>
+                            </label>
+                        </div>
+                        <button class="button button-primary" type="submit">Enviar PIX</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="statement-section" id="statement">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Extrato bancário</p>
+                        <h2>Últimas movimentações</h2>
+                        <small class="statement-generated" id="statement-generated">Data e hora serão atualizadas ao consultar.</small>
+                    </div>
+                    <div class="statement-actions">
+                        <button class="button button-secondary" id="refresh-statement" type="button">↻ Atualizar</button>
+                        <a class="button button-quiet" id="text-statement-link" href="#" target="_blank" rel="noreferrer">Extrato em texto</a>
+                        <a class="button button-download statement-download" data-format="pdf" href="#" download>PDF</a>
+                        <a class="button button-download statement-download" data-format="png" href="#" download>PNG</a>
+                        <a class="button button-download statement-download" data-format="jpeg" href="#" download>JPEG</a>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Operação</th>
+                                <th>Data e hora</th>
+                                <th>Valor</th>
+                                <th>Saldo após operação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactions-body">
+                            <tr class="empty-row">
+                                <td colspan="4">Faça login para visualizar o extrato.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="statement-section hidden" id="admin">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Administrador</p>
+                        <h2>Contas ativas</h2>
+                        <small class="statement-generated" id="admin-generated">Visão exclusiva para administradores.</small>
+                    </div>
+                    <button class="button button-secondary" id="refresh-admin" type="button">↻ Atualizar</button>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Conta</th>
+                                <th>Cliente</th>
+                                <th>Criada em</th>
+                                <th>Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-accounts-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+        <div class="modal-backdrop" data-close-modal></div>
+        <section class="modal-card">
+            <button class="modal-close" data-close-modal type="button" aria-label="Fechar">×</button>
+            <span class="modal-kicker">Abertura digital</span>
+            <h2 id="account-modal-title">Abra sua conta em poucos passos.</h2>
+            <p>O Banco SRJM gerará um número exclusivo e calculará automaticamente o dígito verificador.</p>
+            <form id="create-account-form">
+                <div class="form-grid">
+                    <label>
+                        Nome do titular
+                        <input name="holderName" minlength="3" maxlength="150" placeholder="Ex.: João Silva" required>
+                    </label>
+                    <label>
+                        Senha
+                        <input name="password" type="password" minlength="6" maxlength="128" placeholder="Mínimo de 6 caracteres" required>
+                    </label>
+                    <label class="checkbox-field wide-field">
+                        <input name="administrator" type="checkbox">
+                        <span>
+                            Conta administradora
+                            <small>Permite visualizar todas as contas ativas e seus saldos.</small>
+                        </span>
+                    </label>
+                    <label>
+                        Depósito inicial <span class="optional">Opcional</span>
+                        <div class="currency-input"><span>R$</span><input class="money-input" name="initialDeposit" inputmode="numeric" placeholder="0,00"></div>
+                    </label>
+                </div>
+                <button class="button button-primary button-full" type="submit">Criar conta</button>
+            </form>
+        </section>
+    </div>
+
+    <div class="modal hidden" id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
+        <div class="modal-backdrop" data-close-modal></div>
+        <section class="modal-card">
+            <button class="modal-close" data-close-modal type="button" aria-label="Fechar">×</button>
+            <span class="modal-kicker">Acesso do cliente</span>
+            <h2 id="login-modal-title">Entre na sua conta.</h2>
+            <p>Use o número completo da conta, com o dígito verificador, e a senha cadastrada.</p>
+            <form id="login-form">
+                <div class="form-grid">
+                    <label>
+                        Conta
+                        <input class="account-reference-input" name="account" inputmode="numeric" maxlength="9" placeholder="Digite apenas os números" autocomplete="username" required>
+                    </label>
+                    <label>
+                        Senha
+                        <input name="password" type="password" minlength="6" maxlength="128" autocomplete="current-password" required>
+                    </label>
+                </div>
+                <button class="button button-primary button-full" type="submit">Entrar</button>
+            </form>
+        </section>
+    </div>
+
+    <div class="modal hidden" id="close-account-modal" role="dialog" aria-modal="true" aria-labelledby="close-account-modal-title">
+        <div class="modal-backdrop" data-close-modal></div>
+        <section class="modal-card danger-modal">
+            <button class="modal-close" data-close-modal type="button" aria-label="Fechar">×</button>
+            <span class="modal-kicker">Encerramento de conta</span>
+            <h2 id="close-account-modal-title">Confirmar encerramento?</h2>
+            <p>A conta só pode ser encerrada se estiver ativa e com saldo R$ 0,00. O histórico continuará disponível para consulta.</p>
+            <form id="close-account-form">
+                <div class="form-grid">
+                    <label class="wide-field">
+                        Senha da conta
+                        <input name="password" type="password" minlength="6" maxlength="128" placeholder="Digite sua senha para confirmar" required>
+                    </label>
+                </div>
+                <button class="button button-danger button-full" type="submit">Confirmar encerramento</button>
+            </form>
+        </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/js/app.js" defer></script>
+</body>
+</html>

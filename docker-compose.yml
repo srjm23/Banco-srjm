@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: banco-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-banco_programacao}
+      POSTGRES_USER: ${POSTGRES_USER:-banco_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-banco_user} -d ${POSTGRES_DB:-banco_programacao}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - banco-data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: banco-api
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-banco_programacao}
+      DB_USER: ${POSTGRES_USER:-banco_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      - banco-edge
+      - banco-data
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: banco-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8088}:80"
+    networks:
+      - banco-edge
+
+volumes:
+  postgres_data:
+
+networks:
+  banco-edge:
+    driver: bridge
+  banco-data:
+    driver: bridge
