@@ -24,14 +24,34 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-banco_programacao}
       DB_USER: ${POSTGRES_USER:-banco_user}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_FROM: ${MAIL_FROM:-noreply@bancosrjm.local}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8088/}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-chave-local-banco-srjm-nao-usar-em-producao}
+      ADMINISTRATOR_CREATION_TOKEN: ${ADMINISTRATOR_CREATION_TOKEN:-srjm}
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     expose:
       - "8080"
     networks:
       - banco-edge
       - banco-data
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: banco-mailpit
+    ports:
+      - "${MAILPIT_PORT:-8025}:8025"
+    networks:
+      - banco-edge
 
   frontend:
     build:

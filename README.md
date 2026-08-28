@@ -67,14 +67,25 @@ docker compose down -v
 - O dígito verificador é calculado pelo Módulo 11.
 - O login utiliza a referência `numero-dv` e a senha criada na abertura.
 - A senha é persistida somente como hash BCrypt.
+- A recuperação de senha envia um link de uso único, válido por 30 minutos, ao e-mail cadastrado.
+- Tokens de recuperação são persistidos somente como hash SHA-256 e invalidados após o uso.
+- A abertura exige e-mail, telefone com DDD e CPF válido, todos únicos por cliente.
+- O CPF é cifrado com AES-GCM antes de ser persistido; um hash SHA-256 separado permite verificar unicidade sem expor o número.
 - Consultas e operações só aceitam a conta autenticada na sessão.
 - Depósito, saque e PIX exigem contas com status `ATIVA`.
 - O PIX funciona apenas entre contas existentes e ativas do Banco SRJM.
+- Cada conta pode registrar chaves PIX de e-mail, telefone, CPF e uma aleatória alfanumérica de 12 caracteres.
+- O PIX é realizado somente entre contas do Banco SRJM por meio de uma chave PIX previamente cadastrada.
+- A conta de origem precisa possuir saldo suficiente para o valor integral do PIX.
 - Saque e PIX não permitem saldo negativo.
 - O PIX bloqueia origem e destino e grava débito e crédito na mesma transação do banco.
 - Uma conta só pode ser encerrada quando estiver ativa, com saldo zerado e senha válida.
 - O encerramento preserva o cliente e o histórico de transações.
-- Contas administradoras podem consultar contas ativas, datas de abertura e saldos.
+- Contas administradoras são exclusivamente gerenciais: não realizam depósito, saque ou PIX e não exibem área de transações.
+- O painel administrativo consulta somente contas de clientes, seus dados, CPF cifrado, status e saldo, além do saldo total consolidado do banco.
+- A abertura comum não realiza depósito inicial; o saldo começa zerado.
+- A conta administradora é aberta apenas com nome, senha e o token definido em `ADMINISTRATOR_CREATION_TOKEN` (`srjm` no ambiente local).
+- Administradores podem listar todas as contas, incluindo contatos, perfil, status e saldo, sem expor senha ou CPF.
 
 ## Autenticação
 
@@ -92,11 +103,13 @@ O perfil administrador é persistido em `accounts.administrator`. Neste projeto 
 ```text
 clients
    └── accounts
+          ├── pix_keys
           └── bank_transactions
 ```
 
-- `clients`: nome e data de criação do cliente;
+- `clients`: nome, e-mail, telefone, CPF cifrado, hash do CPF e data de criação do cliente;
 - `accounts`: número, DV, hash da senha, perfil, status e saldo;
+- `pix_keys`: tipo, valor único, conta vinculada e data de criação;
 - `bank_transactions`: tipo, direção, valor, saldo posterior, contraparte e data/hora.
 
 Status: `ATIVA`, `BLOQUEADA` ou `ENCERRADA`. No extrato, `C` representa crédito e `D` representa débito.
@@ -109,16 +122,28 @@ Status: `ATIVA`, `BLOQUEADA` ou `ENCERRADA`. No extrato, `C` representa crédito
 | `POST` | `/api/auth/login` | Entrar com conta e senha |
 | `GET` | `/api/auth/me` | Recuperar a conta da sessão |
 | `DELETE` | `/api/auth/logout` | Encerrar a sessão |
+| `POST` | `/api/auth/forgot-password` | Solicitar link de redefinição de senha |
+| `POST` | `/api/auth/reset-password` | Criar uma nova senha com o token recebido |
 | `GET` | `/api/accounts/{numero-dv}` | Consultar a própria conta |
+| `GET` | `/api/accounts/{numero-dv}/pix-keys` | Listar as próprias chaves PIX |
+| `POST` | `/api/accounts/{numero-dv}/pix-keys` | Criar chave PIX de e-mail, telefone ou aleatória |
 | `PATCH` | `/api/accounts/{numero-dv}/status` | Alterar status |
 | `POST` | `/api/accounts/{numero-dv}/close` | Encerrar conta |
 | `GET` | `/api/accounts/{numero-dv}/statement` | Consultar extrato JSON |
 | `GET` | `/api/accounts/{numero-dv}/statement/text` | Consultar extrato em texto |
 | `GET` | `/api/accounts/{numero-dv}/statement/download?format=pdf` | Baixar PDF, PNG ou JPEG |
-| `GET` | `/api/accounts/admin/active` | Listar contas ativas como administrador |
+| `GET` | `/api/accounts/admin/all` | Listar todas as contas como administrador |
 | `POST` | `/api/transactions/deposits` | Realizar depósito |
 | `POST` | `/api/transactions/withdrawals` | Realizar saque |
 | `POST` | `/api/transactions/pix` | Realizar PIX interno |
+
+## E-mail de recuperação
+
+No ambiente Docker, o Mailpit recebe os e-mails localmente. Depois de solicitar a recuperação, abra `http://localhost:8025` para acessar a caixa de entrada de desenvolvimento.
+
+Para envio real, configure `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_SMTP_AUTH`, `MAIL_STARTTLS` e `FRONTEND_URL` no ambiente. O `FRONTEND_URL` deve apontar para a URL pública da aplicação.
+
+Defina também `DATA_ENCRYPTION_KEY` com um segredo longo e exclusivo em produção. Essa chave deve ser preservada com segurança: sem ela, não é possível decifrar os CPFs já cadastrados.
 
 ## Organização do backend
 

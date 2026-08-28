@@ -12,6 +12,7 @@ import com.bancoprogramacao.api.exception.BankBusinessException;
 import com.bancoprogramacao.api.repository.AccountRepository;
 import com.bancoprogramacao.api.repository.BankTransactionRepository;
 import com.bancoprogramacao.api.repository.ClientRepository;
+import com.bancoprogramacao.api.repository.PixKeyRepository;
 import com.bancoprogramacao.api.util.CheckDigitCalculator;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -35,6 +36,12 @@ class BankServiceTest {
     private ClientRepository clientRepository;
 
     @Mock
+    private PixKeyRepository pixKeyRepository;
+
+    @Mock
+    private SensitiveDataService sensitiveDataService;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
 
     private BankService bankService;
@@ -45,7 +52,10 @@ class BankServiceTest {
                 accountRepository,
                 transactionRepository,
                 clientRepository,
-                passwordEncoder
+                pixKeyRepository,
+                sensitiveDataService,
+                passwordEncoder,
+                "srjm"
         );
     }
 
