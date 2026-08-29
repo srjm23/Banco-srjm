@@ -107,7 +107,8 @@
         document.getElementById("forgot-password-form").addEventListener("submit", requestPasswordReset);
         document.getElementById("reset-password-form").addEventListener("submit", resetPassword);
         document.getElementById("deposit-form").addEventListener("submit", deposit);
-        document.getElementById("withdraw-form").addEventListener("submit", withdraw);
+        document.getElementById("payment-form").addEventListener("submit", pay);
+        document.getElementById("payment-barcode").addEventListener("input", updatePaymentBarcode);
         document.getElementById("pix-form").addEventListener("submit", sendPix);
         document.querySelector("#pix-form input[name='destinationKey']").addEventListener("input", lookupPixRecipient);
         document.querySelectorAll(".pix-key-create").forEach(function (button) {
@@ -135,6 +136,12 @@
             });
         });
 
+        document.querySelectorAll(".login-identifier-input").forEach(function (input) {
+            input.addEventListener("input", function () {
+                input.value = formatLoginIdentifier(input.value);
+            });
+        });
+
         document.querySelectorAll(".money-input").forEach(function (input) {
             input.addEventListener("input", function () {
                 input.value = formatMoneyInput(input.value);
@@ -148,6 +155,17 @@
             return digits;
         }
         return digits.slice(0, -1) + "-" + digits.slice(-1);
+    }
+
+    function formatLoginIdentifier(value) {
+        var digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+        if (digits.length <= 8) {
+            return digits.length < 4 ? digits : digits.slice(0, -1) + "-" + digits.slice(-1);
+        }
+        return digits
+            .replace(/^(\d{3})(\d)/, "$1.$2")
+            .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+            .replace(/\.(\d{3})(\d)/, ".$1-$2");
     }
 
     function formatMoneyInput(value) {
@@ -598,7 +616,7 @@
         await submitOperation(form, "/transactions/deposits", payload, "Depósito realizado com sucesso.");
     }
 
-    async function withdraw(event) {
+    async function pay(event) {
         event.preventDefault();
         if (!ensureActiveAccount()) {
             return;
@@ -607,10 +625,52 @@
         var form = event.currentTarget;
         var payload = {
             account: state.activeReference,
+            barcode: form.elements.barcode.value.replace(/\D/g, ""),
             amount: normalizeAmount(form.elements.amount.value),
+            description: form.elements.description.value.trim(),
             password: form.elements.password.value
         };
-        await submitOperation(form, "/transactions/withdrawals", payload, "Saque realizado com sucesso.");
+        if (payload.barcode.length !== 44) {
+            showToast("O código de barras deve possuir exatamente 44 dígitos.", "error");
+            return;
+        }
+        await submitOperation(form, "/transactions/payments", payload, "Pagamento realizado com sucesso.");
+        updatePaymentBarcode({ currentTarget: form.elements.barcode });
+    }
+
+    function updatePaymentBarcode(event) {
+        var input = event.currentTarget;
+        var barcode = input.value.replace(/\D/g, "").slice(0, 44);
+        var output = document.getElementById("payment-digitable-line");
+        var feedback = document.getElementById("payment-barcode-feedback");
+        input.value = barcode;
+        if (barcode.length !== 44) {
+            output.value = "";
+            feedback.textContent = barcode.length + " de 44 dígitos informados.";
+            return;
+        }
+        var line = toDigitableLine(barcode);
+        output.value = line.slice(0, 16) + "  " + line.slice(16, 32) + "  " + line.slice(32);
+        feedback.textContent = "Linha digitável gerada com 47 dígitos.";
+    }
+
+    function toDigitableLine(barcode) {
+        var field1 = barcode.slice(0, 4) + barcode.slice(19, 24);
+        var field2 = barcode.slice(24, 34);
+        var field3 = barcode.slice(34, 44);
+        return field1 + modulo10(field1) + field2 + modulo10(field2) + field3 + modulo10(field3)
+            + barcode.slice(4, 5) + barcode.slice(5, 19);
+    }
+
+    function modulo10(value) {
+        var sum = 0;
+        var multiplier = 2;
+        for (var index = value.length - 1; index >= 0; index--) {
+            var product = Number(value.charAt(index)) * multiplier;
+            sum += product > 9 ? product - 9 : product;
+            multiplier = multiplier === 2 ? 1 : 2;
+        }
+        return (10 - (sum % 10)) % 10;
     }
 
     async function sendPix(event) {

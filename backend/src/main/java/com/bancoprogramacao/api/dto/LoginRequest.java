@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record LoginRequest(
-        @NotBlank(message = "A conta é obrigatória.")
+        @NotBlank(message = "Informe o CPF ou o número da conta.")
         String account,
 
         @NotBlank(message = "A senha é obrigatória.")

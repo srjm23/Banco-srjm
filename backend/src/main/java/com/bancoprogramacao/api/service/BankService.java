@@ -12,7 +12,7 @@ import com.bancoprogramacao.api.dto.AccountCreateRequest;
 import com.bancoprogramacao.api.dto.AccountCloseRequest;
 import com.bancoprogramacao.api.dto.DepositRequest;
 import com.bancoprogramacao.api.dto.PixRequest;
-import com.bancoprogramacao.api.dto.WithdrawalRequest;
+import com.bancoprogramacao.api.dto.PaymentRequest;
 import com.bancoprogramacao.api.exception.BankBusinessException;
 import com.bancoprogramacao.api.repository.AccountRepository;
 import com.bancoprogramacao.api.repository.BankTransactionRepository;
@@ -134,6 +134,26 @@ public class BankService {
 
     public Account authenticate(String accountReference, String password) {
         Account account = getAccount(accountReference);
+        return validateAuthenticatedAccount(account, password);
+    }
+
+    public Account authenticateByAccountOrCpf(String identifier, String password) {
+        String digits = identifier == null ? "" : identifier.replaceAll("\\D", "");
+        Account account;
+        if (digits.length() == 11) {
+            account = accountRepository.findByClientCpfHash(sensitiveDataService.hash(digits))
+                    .orElseThrow(() -> notFound("CPF ou conta não encontrado."));
+        } else {
+            try {
+                account = getAccount(identifier);
+            } catch (BankBusinessException exception) {
+                throw notFound("CPF ou conta não encontrado.");
+            }
+        }
+        return validateAuthenticatedAccount(account, password);
+    }
+
+    private Account validateAuthenticatedAccount(Account account, String password) {
         requireValidPassword(account, password);
         if (account.getStatus() == AccountStatus.ENCERRADA) {
             throw conflict("A conta está encerrada e não permite acesso.");
@@ -201,21 +221,46 @@ public class BankService {
     }
 
     @Transactional
-    public OperationResult withdraw(WithdrawalRequest request) {
+    public OperationResult pay(PaymentRequest request) {
         Account account = loadAndValidateAccountForUpdate(AccountReference.parse(request.account()));
         requireFinancialAccount(account);
         requireActive(account);
         requireValidPassword(account, request.password());
+        if (request.barcode() == null || !request.barcode().matches("\\d{44}")) {
+            throw invalid("O código de barras deve possuir exatamente 44 dígitos.");
+        }
+        if (money(account.getBalance()).compareTo(money(request.amount())) < 0) {
+            throw invalid("Saldo insuficiente para realizar o pagamento.");
+        }
         BankTransaction transaction = recordTransaction(
                 account,
                 TransactionDirection.D,
-                TransactionType.SAQUE,
+                TransactionType.PAGAMENTO,
                 request.amount(),
                 null,
                 null,
-                "Saque em dinheiro"
+                "Pagamento: " + request.description().trim() + " | Linha: " + toDigitableLine(request.barcode())
         );
         return new OperationResult(account, transaction);
+    }
+
+    private String toDigitableLine(String barcode) {
+        String field1 = barcode.substring(0, 4) + barcode.substring(19, 24);
+        String field2 = barcode.substring(24, 34);
+        String field3 = barcode.substring(34, 44);
+        return field1 + modulo10(field1) + field2 + modulo10(field2) + field3 + modulo10(field3)
+                + barcode.substring(4, 5) + barcode.substring(5, 19);
+    }
+
+    private int modulo10(String value) {
+        int sum = 0;
+        int multiplier = 2;
+        for (int index = value.length() - 1; index >= 0; index--) {
+            int product = Character.digit(value.charAt(index), 10) * multiplier;
+            sum += product > 9 ? product - 9 : product;
+            multiplier = multiplier == 2 ? 1 : 2;
+        }
+        return (10 - (sum % 10)) % 10;
     }
 
     @Transactional
