@@ -2,9 +2,10 @@ package com.bancoprogramacao.api.controller;
 
 import com.bancoprogramacao.api.dto.DepositRequest;
 import com.bancoprogramacao.api.dto.OperationResponse;
+import com.bancoprogramacao.api.dto.PaymentRequest;
 import com.bancoprogramacao.api.dto.PixRequest;
 import com.bancoprogramacao.api.dto.PixResponse;
-import com.bancoprogramacao.api.dto.WithdrawalRequest;
+import com.bancoprogramacao.api.dto.PixRecipientResponse;
 import com.bancoprogramacao.api.mapper.ApiMapper;
 import com.bancoprogramacao.api.service.BankService;
 import com.bancoprogramacao.api.service.AccountSessionService;
@@ -15,6 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -43,12 +46,12 @@ public class TransactionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @PostMapping("/withdrawals")
-    public ResponseEntity<OperationResponse> withdraw(@Valid @RequestBody WithdrawalRequest request, HttpSession session) {
+    @PostMapping("/payments")
+    public ResponseEntity<OperationResponse> pay(@Valid @RequestBody PaymentRequest request, HttpSession session) {
         accountSessionService.requireOwnAccount(session, request.account());
-        BankService.OperationResult result = bankService.withdraw(request);
+        BankService.OperationResult result = bankService.pay(request);
         OperationResponse response = new OperationResponse(
-                "Saque realizado com sucesso.",
+                "Pagamento realizado com sucesso.",
                 mapper.toAccountResponse(result.account()),
                 mapper.toTransactionResponse(result.transaction())
         );
@@ -68,5 +71,12 @@ public class TransactionController {
                 mapper.toTransactionResponse(result.credit())
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/pix/recipient")
+    public PixRecipientResponse getPixRecipient(@RequestParam String key, HttpSession session) {
+        accountSessionService.currentAccount(session);
+        var recipient = bankService.getPixRecipient(key);
+        return new PixRecipientResponse(recipient.getClient().getFullName());
     }
 }

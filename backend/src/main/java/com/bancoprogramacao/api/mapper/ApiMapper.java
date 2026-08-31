@@ -18,6 +18,8 @@ public class ApiMapper {
                 new ClientResponse(
                         account.getClient().getId(),
                         account.getClient().getFullName(),
+                        account.getClient().getEmail(),
+                        account.getClient().getPhone(),
                         account.getClient().getCreatedAt()
                 ),
                 account.getStatus(),

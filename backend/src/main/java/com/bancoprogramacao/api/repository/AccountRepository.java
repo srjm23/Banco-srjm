@@ -17,6 +17,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
 
     Optional<Account> findByNumber(String number);
 
+    @Query("select account from Account account where account.client.cpfHash = :cpfHash")
+    Optional<Account> findByClientCpfHash(@Param("cpfHash") String cpfHash);
+
     List<Account> findByStatusOrderByCreatedAtDesc(AccountStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

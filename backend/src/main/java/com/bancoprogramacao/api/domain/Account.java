@@ -134,6 +134,10 @@ public class Account {
         this.balance = balance;
     }
 
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
     public void close() {
         this.status = AccountStatus.ENCERRADA;
         this.closedAt = Instant.now();

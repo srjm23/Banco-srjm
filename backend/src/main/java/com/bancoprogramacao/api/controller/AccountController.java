@@ -7,9 +7,12 @@ import com.bancoprogramacao.api.dto.AccountCloseRequest;
 import com.bancoprogramacao.api.dto.AccountClosureResponse;
 import com.bancoprogramacao.api.dto.AccountResponse;
 import com.bancoprogramacao.api.dto.AdminAccountResponse;
+import com.bancoprogramacao.api.dto.AdminOverviewResponse;
 import com.bancoprogramacao.api.dto.AccountStatusUpdateRequest;
 import com.bancoprogramacao.api.dto.StatementResponse;
 import com.bancoprogramacao.api.dto.TransactionResponse;
+import com.bancoprogramacao.api.dto.PixKeyCreateRequest;
+import com.bancoprogramacao.api.dto.PixKeyResponse;
 import com.bancoprogramacao.api.mapper.ApiMapper;
 import com.bancoprogramacao.api.service.BankService;
 import com.bancoprogramacao.api.service.AccountSessionService;
@@ -80,17 +83,45 @@ public class AccountController {
         return mapper.toAccountResponse(bankService.getAccount(accountReference));
     }
 
-    @GetMapping("/admin/active")
-    public List<AdminAccountResponse> getActiveAccounts(HttpSession session) {
+    @GetMapping("/{accountReference}/pix-keys")
+    public List<PixKeyResponse> getPixKeys(@PathVariable String accountReference, HttpSession session) {
+        accountSessionService.requireOwnAccount(session, accountReference);
+        return bankService.getPixKeys(accountReference).stream()
+                .map(key -> new PixKeyResponse(key.getType(), bankService.getPixKeyDisplayValue(key), key.getCreatedAt()))
+                .toList();
+    }
+
+    @PostMapping("/{accountReference}/pix-keys")
+    public ResponseEntity<PixKeyResponse> createPixKey(
+            @PathVariable String accountReference,
+            @Valid @RequestBody PixKeyCreateRequest request,
+            HttpSession session
+    ) {
+        accountSessionService.requireOwnAccount(session, accountReference);
+        var key = bankService.createPixKey(accountReference, request.type());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new PixKeyResponse(key.getType(), bankService.getPixKeyDisplayValue(key), key.getCreatedAt()));
+    }
+
+    @GetMapping("/admin/all")
+    public AdminOverviewResponse getAllAccounts(HttpSession session) {
         accountSessionService.requireAdministrator(session);
-        return bankService.getActiveAccounts().stream()
+        List<AdminAccountResponse> accounts = bankService.getCustomerAccounts().stream()
                 .map(account -> new AdminAccountResponse(
                         account.getAccountReference(),
                         account.getClient().getFullName(),
+                        account.getClient().getEmail(),
+                        account.getClient().getPhone(),
+                        bankService.getMaskedCpf(account),
+                        account.getStatus(),
                         account.getCreatedAt(),
                         account.getBalance()
                 ))
                 .toList();
+        BigDecimal totalBalance = accounts.stream()
+                .map(AdminAccountResponse::balance)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new AdminOverviewResponse(accounts.size(), totalBalance, accounts);
     }
 
     @PatchMapping("/{accountReference}/status")

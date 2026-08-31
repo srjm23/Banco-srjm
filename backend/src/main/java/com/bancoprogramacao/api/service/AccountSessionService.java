@@ -17,8 +17,8 @@ public class AccountSessionService {
         this.bankService = bankService;
     }
 
-    public Account login(HttpSession session, String accountReference, String password) {
-        Account account = bankService.authenticate(accountReference, password);
+    public Account login(HttpSession session, String identifier, String password) {
+        Account account = bankService.authenticateByAccountOrCpf(identifier, password);
         session.setAttribute(AUTHENTICATED_ACCOUNT, account.getAccountReference());
         return account;
     }

@@ -1,39 +1,47 @@
 # Banco SRJM
 
-Sistema bancário didático com abertura de contas, autenticação, depósito, saque, PIX interno, extrato e painel administrativo.
+Sistema bancário didático com frontend web, API REST e PostgreSQL. Permite abertura de contas, login por conta ou CPF, depósito, pagamento de boleto, PIX interno, extrato, recuperação de senha e administração de contas.
 
 ## Arquitetura
 
 ```text
-Navegador
-   │  http://localhost:8088
-   ▼
-Nginx (frontend e proxy /api)
-   │
-   ▼
-Spring Boot 3 + Java 17
-   │  JPA / Flyway
-   ▼
-PostgreSQL 16
+Navegador (localhost:8088)
+          |
+          v
+Nginx: frontend + proxy /api
+          |
+          v
+Spring Boot: API e regras bancárias
+       |                 |
+       v                 v
+ PostgreSQL        SMTP / Mailpit
 ```
 
-| Componente | Responsabilidade |
-| --- | --- |
-| `frontend/` | Interface responsiva em HTML, CSS e JavaScript |
-| `backend/` | API REST, autenticação e regras bancárias |
-| `postgres` | Persistência de clientes, contas e transações |
-| `docker-compose.yml` | Inicializa e conecta os três serviços |
+| Componente | Tecnologia | Responsabilidade |
+| --- | --- | --- |
+| `frontend/` | HTML, CSS, JavaScript e Nginx | Interface, formulários e proxy `/api` |
+| `backend/` | Java e Spring Boot 3 | API, autenticação, validações e regras financeiras |
+| `postgres/` | PostgreSQL | Clientes, contas, chaves PIX e transações |
+| Mailpit | SMTP local | E-mails de recuperação |
+| Flyway | Migrações SQL | Versionamento do esquema |
+| Docker Compose | Contêineres | Build, redes, volumes e inicialização |
 
-Somente o Nginx publica uma porta. A API e o PostgreSQL permanecem nas redes internas do Docker.
+Somente o Nginx publica a aplicação. Backend e PostgreSQL permanecem nas redes internas do Docker.
 
-## Tecnologias
+## Imagens Chainguard
 
-- Java 17 e Spring Boot 3.3;
-- Spring Web, Validation e Data JPA;
-- PostgreSQL 16 e Flyway;
-- BCrypt para senhas;
-- Apache PDFBox e Java2D para extratos;
-- Nginx, Docker e Docker Compose.
+> **Destaque de segurança:** frontend, backend e PostgreSQL usam imagens-base da **Chainguard**, com superfície reduzida de ataque e menor quantidade de pacotes e CVEs.
+
+| Componente | Imagem-base | Imagem gerada pelo projeto |
+| --- | --- | --- |
+| Frontend | `cgr.dev/chainguard/nginx:latest` | `srjm2024/banco-srjm-frontend:latest` |
+| Build do backend | `cgr.dev/chainguard/maven:latest` | estágio de compilação |
+| Runtime do backend | `cgr.dev/chainguard/jre:latest-dev` | `srjm2024/banco-srjm-backend:latest` |
+| PostgreSQL | `cgr.dev/chainguard/postgres:latest` | `srjm2024/banco-srjm-postgres:latest` |
+
+O runtime Java instala apenas `fontconfig` e `ttf-dejavu`, necessários para gerar extratos em PDF, PNG e JPEG. Em produção, recomenda-se fixar versões ou digests no lugar de `latest` para garantir builds reproduzíveis.
+
+Imagem auxiliar: `axllent/mailpit:v1.27`, servidor de e-mail local acessível em `http://localhost:8025`.
 
 ## Como executar
 
@@ -46,166 +54,142 @@ docker compose up --build
 Acessos:
 
 - aplicação: `http://localhost:8088`;
+- e-mails locais: `http://localhost:8025`;
 - Swagger: `http://localhost:8088/api/swagger-ui.html`;
+- OpenAPI: `http://localhost:8088/api/openapi`;
 - health check: `http://localhost:8088/api/actuator/health`.
 
-Parar sem apagar dados:
+Para parar sem apagar dados:
 
 ```bash
 docker compose down
 ```
 
-Apagar também o volume do PostgreSQL:
+O banco atual usa o volume `postgres_data_v18`. `docker compose down -v` também remove volumes e pode apagar os dados definitivamente.
 
-```bash
-docker compose down -v
-```
+## Funcionalidades e regras
 
-## Regras de negócio
+### Contas e autenticação
 
-- O banco gera um número aleatório de seis dígitos e garante sua unicidade.
-- O dígito verificador é calculado pelo Módulo 11.
-- O login utiliza a referência `numero-dv` e a senha criada na abertura.
-- A senha é persistida somente como hash BCrypt.
-- Consultas e operações só aceitam a conta autenticada na sessão.
-- Depósito, saque e PIX exigem contas com status `ATIVA`.
-- O PIX funciona apenas entre contas existentes e ativas do Banco SRJM.
-- Saque e PIX não permitem saldo negativo.
-- O PIX bloqueia origem e destino e grava débito e crédito na mesma transação do banco.
-- Uma conta só pode ser encerrada quando estiver ativa, com saldo zerado e senha válida.
-- O encerramento preserva o cliente e o histórico de transações.
-- Contas administradoras podem consultar contas ativas, datas de abertura e saldos.
+- A conta de cliente exige nome, e-mail, telefone com 11 dígitos, CPF válido e senha; o saldo inicial é zero.
+- E-mail, telefone e CPF devem ser únicos.
+- O banco gera o número da conta e calcula o dígito verificador por Módulo 11.
+- O login aceita CPF ou referência da conta (`numero-dv`) e cria uma sessão `JSESSIONID`.
+- A senha é armazenada como hash BCrypt.
+- O CPF é cifrado com AES-GCM e possui hash SHA-256 separado para busca e unicidade.
+- No painel administrativo, o CPF aparece como `123.***.***-**`.
+- Contas bloqueadas ou encerradas não realizam movimentações; contas encerradas também não podem entrar.
 
-## Autenticação
+### Recuperação de senha
 
-O login cria uma sessão HTTP identificada pelo cookie `JSESSIONID`.
+- O usuário informa conta e e-mail e recebe um link com token aleatório.
+- O token vale 30 minutos, pode ser usado uma vez e somente seu hash SHA-256 é persistido.
+- No ambiente local, o link pode ser consultado no Mailpit.
 
-- cadastro, senha, saldo e transações ficam no PostgreSQL;
-- a sessão ativa fica na memória do backend;
-- reiniciar a API exige novo login, mas não remove o cadastro;
-- uma sessão não pode consultar ou movimentar outra conta.
+### Operações financeiras
 
-O perfil administrador é persistido em `accounts.administrator`. Neste projeto didático ele pode ser selecionado na abertura; em produção, essa permissão deve ser concedida apenas por um administrador autorizado.
+- **Depósito:** credita uma conta ativa e registra o novo saldo no extrato.
+- **Pagamento:** substitui o saque e exige código de barras de 44 dígitos, valor, descrição e senha.
+- O pagamento valida o saldo, produz a linha digitável de 47 dígitos e registra `PAGAMENTO`.
+- **PIX interno:** funciona somente entre contas do Banco SRJM por chave cadastrada.
+- Chaves disponíveis: e-mail, telefone, CPF e aleatória alfanumérica de 12 caracteres.
+- Ao informar a chave, a API retorna o nome do destinatário antes da confirmação.
+- Origem e destino precisam estar ativos; conta bloqueada ou encerrada não recebe PIX.
+- O PIX valida senha e saldo, bloqueia ambas as contas e grava débito e crédito atomicamente com o mesmo `transferId`.
+- Contas administradoras não executam operações financeiras.
+
+### Extrato, encerramento e administração
+
+- A visão geral mostra as três movimentações mais recentes.
+- O extrato completo está disponível em JSON, texto, PDF, PNG e JPEG.
+- Cada lançamento guarda tipo, crédito/débito, valor, saldo posterior, descrição, contraparte e data.
+- Uma conta só pode ser encerrada quando estiver ativa, com saldo zerado e senha válida; seu histórico é preservado.
+- A conta administradora exige nome, senha e `ADMINISTRATOR_CREATION_TOKEN` (`srjm` no ambiente local).
+- O administrador consulta contas de clientes ativas, bloqueadas e encerradas, com filtros, dados cadastrais, CPF mascarado, saldos e total consolidado do banco.
 
 ## Modelo de dados
 
 ```text
 clients
-   └── accounts
-          └── bank_transactions
+   `-- accounts
+         |-- pix_keys
+         |-- bank_transactions
+         `-- password_reset_tokens
 ```
 
-- `clients`: nome e data de criação do cliente;
-- `accounts`: número, DV, hash da senha, perfil, status e saldo;
-- `bank_transactions`: tipo, direção, valor, saldo posterior, contraparte e data/hora.
+| Tabela | Conteúdo principal |
+| --- | --- |
+| `clients` | Nome, e-mail, telefone, CPF cifrado/hash e criação |
+| `accounts` | Número, DV, senha BCrypt, perfil, status, saldo e encerramento |
+| `pix_keys` | Tipo, valor único, conta e criação |
+| `bank_transactions` | Tipo, direção, valor, saldo posterior, contraparte e data |
+| `password_reset_tokens` | Hash, expiração e utilização do token |
 
-Status: `ATIVA`, `BLOQUEADA` ou `ENCERRADA`. No extrato, `C` representa crédito e `D` representa débito.
+Status: `ATIVA`, `BLOQUEADA` e `ENCERRADA`. Direções: `C` para crédito e `D` para débito. Tipos: `DEPOSITO`, `PAGAMENTO`, `PIX` e `SAQUE` apenas para compatibilidade histórica.
+
+O Hibernate usa `ddl-auto: validate`; mudanças no esquema são feitas por novas migrações em `backend/src/main/resources/db/migration/`. Uma migração já aplicada nunca deve ser editada.
 
 ## API principal
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | `POST` | `/api/accounts` | Abrir conta |
-| `POST` | `/api/auth/login` | Entrar com conta e senha |
-| `GET` | `/api/auth/me` | Recuperar a conta da sessão |
-| `DELETE` | `/api/auth/logout` | Encerrar a sessão |
-| `GET` | `/api/accounts/{numero-dv}` | Consultar a própria conta |
-| `PATCH` | `/api/accounts/{numero-dv}/status` | Alterar status |
-| `POST` | `/api/accounts/{numero-dv}/close` | Encerrar conta |
-| `GET` | `/api/accounts/{numero-dv}/statement` | Consultar extrato JSON |
-| `GET` | `/api/accounts/{numero-dv}/statement/text` | Consultar extrato em texto |
-| `GET` | `/api/accounts/{numero-dv}/statement/download?format=pdf` | Baixar PDF, PNG ou JPEG |
-| `GET` | `/api/accounts/admin/active` | Listar contas ativas como administrador |
-| `POST` | `/api/transactions/deposits` | Realizar depósito |
-| `POST` | `/api/transactions/withdrawals` | Realizar saque |
+| `POST` | `/api/auth/login` | Entrar com CPF ou conta |
+| `GET` | `/api/auth/me` | Consultar sessão atual |
+| `DELETE` | `/api/auth/logout` | Encerrar sessão |
+| `POST` | `/api/auth/forgot-password` | Solicitar recuperação |
+| `POST` | `/api/auth/reset-password` | Definir nova senha |
+| `GET/POST` | `/api/accounts/{conta}/pix-keys` | Listar ou criar chaves PIX |
+| `GET` | `/api/accounts/admin/all` | Consultar contas como administrador |
+| `PATCH` | `/api/accounts/{conta}/status` | Alterar status administrativamente |
+| `POST` | `/api/accounts/{conta}/close` | Encerrar conta |
+| `GET` | `/api/accounts/{conta}/statement` | Extrato JSON |
+| `GET` | `/api/accounts/{conta}/statement/text` | Extrato em texto |
+| `GET` | `/api/accounts/{conta}/statement/download` | Baixar PDF, PNG ou JPEG |
+| `POST` | `/api/transactions/deposits` | Depositar |
+| `POST` | `/api/transactions/payments` | Pagar boleto |
+| `GET` | `/api/transactions/pix/recipient` | Identificar destinatário PIX |
 | `POST` | `/api/transactions/pix` | Realizar PIX interno |
 
-## Organização do backend
+Consultas e movimentações de clientes são conferidas contra a conta autenticada na sessão.
+
+## Organização do código
 
 ```text
-controller/   Entrada HTTP e construção das respostas
-service/      Autenticação e regras de negócio
-repository/   Consultas e bloqueios no PostgreSQL
-domain/       Entidades JPA e enums
-dto/          Contratos JSON de entrada e saída
-mapper/       Conversão de entidades para respostas seguras
-exception/    Erros de validação e regras bancárias
-util/         Referência numero-dv e cálculo do Módulo 11
-config/       BCrypt e OpenAPI
+backend/src/main/java/.../
+  controller/  endpoints HTTP
+  service/     regras bancárias, sessão, senha e documentos
+  repository/  consultas JPA e bloqueios no PostgreSQL
+  domain/      entidades e enums
+  dto/         contratos JSON e validações
+  mapper/      respostas seguras
+  exception/   tratamento padronizado de erros
+  util/        conta e dígito verificador
+
+frontend/
+  index.html             estrutura das telas
+  assets/css/styles.css  layout e responsividade
+  assets/js/app.js       eventos, máscaras e chamadas à API
+  nginx.conf             frontend, proxy e stub de métricas
 ```
 
-Arquivos centrais:
+## Observabilidade preparada, mas desativada
 
-- `BankService.java`: abertura, depósito, saque, PIX, saldo e encerramento;
-- `AccountSessionService.java`: login, sessão, propriedade da conta e administrador;
-- `StatementDocumentService.java`: geração de PDF, PNG e JPEG;
-- `AccountController.java`: conta, extrato e administração;
-- `TransactionController.java`: depósito, saque e PIX;
-- `AuthController.java`: login, sessão atual e logout.
+O projeto mantém suporte a Micrometer, métricas Prometheus e tracing OpenTelemetry/OTLP. O Nginx possui `stub_status`, e há configurações para Nginx Exporter, PostgreSQL Exporter e OpenTelemetry Collector.
 
-## Organização do frontend
+Os serviços de monitoração estão comentados no `docker-compose.yml` e não são iniciados. Para ativá-los futuramente, será necessário descomentar os serviços e iniciar o backend com o perfil Spring `monitoring`.
 
-- `index.html`: página pública, painel autenticado, formulários e modais;
-- `assets/css/styles.css`: identidade visual e responsividade;
-- `assets/js/app.js`: sessão, requisições, operações e máscaras;
-- `nginx.conf`: arquivos estáticos e proxy `/api` para o backend.
+## Configuração e segurança
 
-Antes do login, apenas logotipo, slogan, entrada e abertura de conta ficam visíveis. As operações ficam no painel autenticado.
+Variáveis principais: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DATA_ENCRYPTION_KEY`, `ADMINISTRATOR_CREATION_TOKEN`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_SMTP_AUTH`, `MAIL_STARTTLS` e `FRONTEND_URL`.
 
-As máscaras permitem digitar somente números:
-
-```text
-2615339 → 261533-9
-123456  → R$ 1.234,56
-```
-
-## Banco e migrações
-
-O Hibernate usa `ddl-auto: validate`; ele valida o esquema, mas não altera tabelas. Toda mudança persistente deve ser uma nova migração em:
-
-```text
-backend/src/main/resources/db/migration/
-```
-
-Exemplo: `V7__add_client_document.sql`.
-
-Nunca modifique uma migração que já tenha sido aplicada a um banco existente.
+Os valores padrão servem apenas para desenvolvimento. Em produção, use segredos externos, HTTPS, limitação de tentativas, proteção CSRF, auditoria, sessões persistentes e imagens fixadas por versão ou digest.
 
 ## Testes
-
-Com Java 17 e Maven:
 
 ```bash
 cd backend
 mvn clean verify
 ```
 
-Sem Java local:
-
-```bash
-docker run --rm \
-  -v "$PWD/backend:/workspace" \
-  -w /workspace \
-  maven:3.9-eclipse-temurin-17 \
-  mvn clean verify
-```
-
-Os testes cobrem o dígito verificador, regras de encerramento e geração de PDF, PNG e JPEG.
-
-## Guia de alterações
-
-| Necessidade | Local principal |
-| --- | --- |
-| Textos ou campos | `frontend/index.html` |
-| Cores e layout | `frontend/assets/css/styles.css` |
-| Interação e máscaras | `frontend/assets/js/app.js` |
-| Regra bancária | `backend/.../service/BankService.java` |
-| Autenticação | `backend/.../service/AccountSessionService.java` |
-| Endpoint | `backend/.../controller/` |
-| JSON da API | `backend/.../dto/` |
-| Entidade | `backend/.../domain/` e nova migração |
-| Consulta ao banco | `backend/.../repository/` |
-| Extrato para download | `StatementDocumentService.java` |
-| Portas e banco | `application.yml` e `docker-compose.yml` |
-
-Fluxo recomendado: migração, entidade/DTO/repository, service, controller, frontend, testes e `docker compose up --build`.
+Os testes cobrem regras centrais, como dígito verificador, encerramento, PIX para contas encerradas e documentos de extrato.

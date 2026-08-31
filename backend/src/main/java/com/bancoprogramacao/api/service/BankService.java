@@ -6,15 +6,18 @@ import com.bancoprogramacao.api.domain.BankTransaction;
 import com.bancoprogramacao.api.domain.Client;
 import com.bancoprogramacao.api.domain.TransactionDirection;
 import com.bancoprogramacao.api.domain.TransactionType;
+import com.bancoprogramacao.api.domain.PixKey;
+import com.bancoprogramacao.api.domain.PixKeyType;
 import com.bancoprogramacao.api.dto.AccountCreateRequest;
 import com.bancoprogramacao.api.dto.AccountCloseRequest;
 import com.bancoprogramacao.api.dto.DepositRequest;
 import com.bancoprogramacao.api.dto.PixRequest;
-import com.bancoprogramacao.api.dto.WithdrawalRequest;
+import com.bancoprogramacao.api.dto.PaymentRequest;
 import com.bancoprogramacao.api.exception.BankBusinessException;
 import com.bancoprogramacao.api.repository.AccountRepository;
 import com.bancoprogramacao.api.repository.BankTransactionRepository;
 import com.bancoprogramacao.api.repository.ClientRepository;
+import com.bancoprogramacao.api.repository.PixKeyRepository;
 import com.bancoprogramacao.api.util.AccountReference;
 import com.bancoprogramacao.api.util.CheckDigitCalculator;
 import java.math.BigDecimal;
@@ -28,6 +31,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -42,30 +46,46 @@ public class BankService {
     private static final int MIN_ACCOUNT_NUMBER = 100_000;
     private static final int ACCOUNT_NUMBER_RANGE = 900_000;
     private static final int ACCOUNT_GENERATION_ATTEMPTS = 100;
+    private static final String RANDOM_PIX_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final AccountRepository accountRepository;
     private final BankTransactionRepository transactionRepository;
     private final ClientRepository clientRepository;
+    private final PixKeyRepository pixKeyRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SensitiveDataService sensitiveDataService;
+    private final String administratorCreationToken;
 
     public BankService(
             AccountRepository accountRepository,
             BankTransactionRepository transactionRepository,
             ClientRepository clientRepository,
-            PasswordEncoder passwordEncoder
+            PixKeyRepository pixKeyRepository,
+            SensitiveDataService sensitiveDataService,
+            PasswordEncoder passwordEncoder,
+            @Value("${app.administrator-creation-token}") String administratorCreationToken
     ) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.clientRepository = clientRepository;
+        this.pixKeyRepository = pixKeyRepository;
+        this.sensitiveDataService = sensitiveDataService;
         this.passwordEncoder = passwordEncoder;
+        this.administratorCreationToken = administratorCreationToken;
     }
 
     @Transactional
     public Account createAccount(AccountCreateRequest request) {
         String number = generateUniqueAccountNumber();
+        Client client;
+        if (request.administrator()) {
+            requireAdministratorToken(request.administratorToken());
+            client = clientRepository.save(new Client(request.holderName().trim()));
+        } else {
+            client = createCustomer(request);
+        }
 
-        Client client = clientRepository.save(new Client(request.holderName().trim()));
         Account account = new Account(
                 number,
                 CheckDigitCalculator.calculate(number),
@@ -73,24 +93,67 @@ public class BankService {
                 passwordEncoder.encode(request.password()),
                 request.administrator()
         );
-        accountRepository.save(account);
+        return accountRepository.save(account);
+    }
 
-        if (request.initialDeposit() != null) {
-            recordTransaction(
-                    account,
-                    TransactionDirection.C,
-                    TransactionType.DEPOSITO,
-                    request.initialDeposit(),
-                    null,
-                    null,
-                    "Depósito inicial de abertura de conta"
-            );
+    private Client createCustomer(AccountCreateRequest request) {
+        if (request.email() == null || request.email().isBlank()
+                || request.phone() == null || request.phone().isBlank()
+                || request.cpf() == null || request.cpf().isBlank()) {
+            throw invalid("E-mail, telefone e CPF são obrigatórios para abrir uma conta de cliente.");
         }
-        return account;
+        String email = request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        String phone = request.phone().trim();
+        String cpf = request.cpf().trim();
+        if (!isValidCpf(cpf)) {
+            throw invalid("Informe um CPF válido.");
+        }
+        String cpfHash = sensitiveDataService.hash(cpf);
+        if (clientRepository.existsByEmailIgnoreCase(email)) {
+            throw conflict("Este e-mail já está vinculado a outro cliente.");
+        }
+        if (clientRepository.existsByPhone(phone)) {
+            throw conflict("Este telefone já está vinculado a outro cliente.");
+        }
+        if (clientRepository.existsByCpfHash(cpfHash)) {
+            throw conflict("Este CPF já está vinculado a outro cliente.");
+        }
+
+        return clientRepository.save(new Client(
+                request.holderName().trim(), email, phone, sensitiveDataService.encrypt(cpf), cpfHash));
+    }
+
+    private void requireAdministratorToken(String suppliedToken) {
+        byte[] expected = administratorCreationToken.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] supplied = (suppliedToken == null ? "" : suppliedToken)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (!java.security.MessageDigest.isEqual(expected, supplied)) {
+            throw new BankBusinessException(HttpStatus.FORBIDDEN, "Token administrativo inválido.");
+        }
     }
 
     public Account authenticate(String accountReference, String password) {
         Account account = getAccount(accountReference);
+        return validateAuthenticatedAccount(account, password);
+    }
+
+    public Account authenticateByAccountOrCpf(String identifier, String password) {
+        String digits = identifier == null ? "" : identifier.replaceAll("\\D", "");
+        Account account;
+        if (digits.length() == 11) {
+            account = accountRepository.findByClientCpfHash(sensitiveDataService.hash(digits))
+                    .orElseThrow(() -> notFound("CPF ou conta não encontrado."));
+        } else {
+            try {
+                account = getAccount(identifier);
+            } catch (BankBusinessException exception) {
+                throw notFound("CPF ou conta não encontrado.");
+            }
+        }
+        return validateAuthenticatedAccount(account, password);
+    }
+
+    private Account validateAuthenticatedAccount(Account account, String password) {
         requireValidPassword(account, password);
         if (account.getStatus() == AccountStatus.ENCERRADA) {
             throw conflict("A conta está encerrada e não permite acesso.");
@@ -102,8 +165,10 @@ public class BankService {
         return loadAndValidateAccount(AccountReference.parse(accountReference));
     }
 
-    public List<Account> getActiveAccounts() {
-        return accountRepository.findByStatusOrderByCreatedAtDesc(AccountStatus.ATIVA);
+    public List<Account> getCustomerAccounts() {
+        return accountRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
+                .filter(account -> !account.isAdministrator())
+                .toList();
     }
 
     @Transactional
@@ -141,6 +206,7 @@ public class BankService {
     @Transactional
     public OperationResult deposit(DepositRequest request) {
         Account account = loadAndValidateAccountForUpdate(AccountReference.parse(request.account()));
+        requireFinancialAccount(account);
         requireActive(account);
         BankTransaction transaction = recordTransaction(
                 account,
@@ -155,26 +221,52 @@ public class BankService {
     }
 
     @Transactional
-    public OperationResult withdraw(WithdrawalRequest request) {
+    public OperationResult pay(PaymentRequest request) {
         Account account = loadAndValidateAccountForUpdate(AccountReference.parse(request.account()));
+        requireFinancialAccount(account);
         requireActive(account);
         requireValidPassword(account, request.password());
+        if (request.barcode() == null || !request.barcode().matches("\\d{44}")) {
+            throw invalid("O código de barras deve possuir exatamente 44 dígitos.");
+        }
+        if (money(account.getBalance()).compareTo(money(request.amount())) < 0) {
+            throw invalid("Saldo insuficiente para realizar o pagamento.");
+        }
         BankTransaction transaction = recordTransaction(
                 account,
                 TransactionDirection.D,
-                TransactionType.SAQUE,
+                TransactionType.PAGAMENTO,
                 request.amount(),
                 null,
                 null,
-                "Saque em dinheiro"
+                "Pagamento: " + request.description().trim() + " | Linha: " + toDigitableLine(request.barcode())
         );
         return new OperationResult(account, transaction);
+    }
+
+    private String toDigitableLine(String barcode) {
+        String field1 = barcode.substring(0, 4) + barcode.substring(19, 24);
+        String field2 = barcode.substring(24, 34);
+        String field3 = barcode.substring(34, 44);
+        return field1 + modulo10(field1) + field2 + modulo10(field2) + field3 + modulo10(field3)
+                + barcode.substring(4, 5) + barcode.substring(5, 19);
+    }
+
+    private int modulo10(String value) {
+        int sum = 0;
+        int multiplier = 2;
+        for (int index = value.length() - 1; index >= 0; index--) {
+            int product = Character.digit(value.charAt(index), 10) * multiplier;
+            sum += product > 9 ? product - 9 : product;
+            multiplier = multiplier == 2 ? 1 : 2;
+        }
+        return (10 - (sum % 10)) % 10;
     }
 
     @Transactional
     public PixResult pix(PixRequest request) {
         AccountReference sourceReference = AccountReference.parse(request.sourceAccount());
-        AccountReference destinationReference = AccountReference.parse(request.destinationAccount());
+        AccountReference destinationReference = resolvePixDestination(request.destinationKey());
         if (sourceReference.number().equals(destinationReference.number())) {
             throw invalid("A conta de origem deve ser diferente da conta de destino.");
         }
@@ -185,9 +277,14 @@ public class BankService {
 
         Account source = findLockedAccount(accountsByNumber, sourceReference);
         Account destination = findLockedAccount(accountsByNumber, destinationReference);
+        requireFinancialAccount(source);
+        requireFinancialAccount(destination);
         requireActive(source);
-        requireActive(destination);
+        requirePixDestinationActive(destination);
         requireValidPassword(source, request.password());
+        if (money(source.getBalance()).compareTo(money(request.amount())) < 0) {
+            throw invalid("Saldo insuficiente para concluir o PIX.");
+        }
 
         UUID transferId = UUID.randomUUID();
         BankTransaction debit = recordTransaction(
@@ -212,8 +309,109 @@ public class BankService {
         return new PixResult(source, destination, debit, credit, transferId);
     }
 
+    public List<PixKey> getPixKeys(String accountReference) {
+        Account account = getAccount(accountReference);
+        requireFinancialAccount(account);
+        return pixKeyRepository.findByAccountIdOrderByCreatedAtAsc(account.getId());
+    }
+
+    @Transactional
+    public PixKey createPixKey(String accountReference, PixKeyType type) {
+        Account account = loadAndValidateAccountForUpdate(AccountReference.parse(accountReference));
+        requireFinancialAccount(account);
+        requireActive(account);
+        if (pixKeyRepository.existsByAccountIdAndType(account.getId(), type)) {
+            throw conflict("Esta conta já possui uma chave PIX do tipo " + type.name() + ".");
+        }
+
+        String value = switch (type) {
+            case EMAIL -> account.getClient().getEmail();
+            case PHONE -> account.getClient().getPhone();
+            case CPF -> account.getClient().getCpfEncrypted() == null
+                    ? null : sensitiveDataService.encrypt(sensitiveDataService.decrypt(account.getClient().getCpfEncrypted()));
+            case RANDOM -> generateRandomPixKey();
+        };
+        if (value == null || value.isBlank()) {
+            throw conflict("O cliente não possui o dado necessário para gerar esta chave PIX.");
+        }
+        boolean valueAlreadyRegistered;
+        if (type == PixKeyType.CPF) {
+            String plainCpf = sensitiveDataService.decrypt(value);
+            valueAlreadyRegistered = pixKeyRepository.findCpfKeyByClientCpfHash(account.getClient().getCpfHash()).isPresent()
+                    || pixKeyRepository.existsByValue(plainCpf);
+        } else if (type == PixKeyType.PHONE) {
+            valueAlreadyRegistered = pixKeyRepository.existsByValue(value)
+                    || pixKeyRepository.findCpfKeyByClientCpfHash(sensitiveDataService.hash(value)).isPresent();
+        } else {
+            valueAlreadyRegistered = pixKeyRepository.existsByValue(value);
+        }
+        if (valueAlreadyRegistered) {
+            throw conflict("Este dado já está registrado como chave PIX.");
+        }
+        return pixKeyRepository.save(new PixKey(account, type, value));
+    }
+
+    private AccountReference resolvePixDestination(String destination) {
+        String value = destination.trim();
+        String normalized = value.contains("@") ? value.toLowerCase(java.util.Locale.ROOT) : value;
+        PixKey key = pixKeyRepository.findByValue(normalized).orElse(null);
+        if (key == null && normalized.matches("\\d{11}")) {
+            key = pixKeyRepository.findCpfKeyByClientCpfHash(sensitiveDataService.hash(normalized)).orElse(null);
+        }
+        if (key == null) {
+            throw notFound("Chave PIX não encontrada no Banco SRJM.");
+        }
+        return new AccountReference(key.getAccount().getNumber(), key.getAccount().getCheckDigit());
+    }
+
+    public Account getPixRecipient(String destinationKey) {
+        Account destination = loadAndValidateAccount(resolvePixDestination(destinationKey));
+        requireFinancialAccount(destination);
+        requirePixDestinationActive(destination);
+        return destination;
+    }
+
+    public String getPixKeyDisplayValue(PixKey key) {
+        return key.getType() == PixKeyType.CPF ? sensitiveDataService.decrypt(key.getValue()) : key.getValue();
+    }
+
+    public String getMaskedCpf(Account account) {
+        String encryptedCpf = account.getClient().getCpfEncrypted();
+        if (encryptedCpf == null || encryptedCpf.isBlank()) {
+            return null;
+        }
+        String cpf = sensitiveDataService.decrypt(encryptedCpf);
+        return cpf.substring(0, 3) + ".***.***-**";
+    }
+
+    private boolean isValidCpf(String cpf) {
+        if (!cpf.matches("\\d{11}") || cpf.chars().distinct().count() == 1) return false;
+        for (int digitIndex = 9; digitIndex < 11; digitIndex++) {
+            int sum = 0;
+            for (int index = 0; index < digitIndex; index++) {
+                sum += Character.digit(cpf.charAt(index), 10) * (digitIndex + 1 - index);
+            }
+            int digit = 11 - (sum % 11);
+            if (digit >= 10) digit = 0;
+            if (digit != Character.digit(cpf.charAt(digitIndex), 10)) return false;
+        }
+        return true;
+    }
+
+    private String generateRandomPixKey() {
+        for (int attempt = 0; attempt < ACCOUNT_GENERATION_ATTEMPTS; attempt++) {
+            StringBuilder value = new StringBuilder(12);
+            for (int index = 0; index < 12; index++) {
+                value.append(RANDOM_PIX_ALPHABET.charAt(SECURE_RANDOM.nextInt(RANDOM_PIX_ALPHABET.length())));
+            }
+            if (!pixKeyRepository.existsByValue(value.toString())) return value.toString();
+        }
+        throw conflict("Não foi possível gerar uma chave PIX única. Tente novamente.");
+    }
+
     public StatementData getStatement(String accountReference, int limit, String order) {
         Account account = getAccount(accountReference);
+        requireFinancialAccount(account);
         Sort.Direction direction;
         if ("asc".equalsIgnoreCase(order)) {
             direction = Sort.Direction.ASC;
@@ -265,6 +463,21 @@ public class BankService {
         }
         if (account.getStatus() == AccountStatus.ENCERRADA) {
             throw conflict("A conta está encerrada e não pode realizar movimentações.");
+        }
+    }
+
+    private void requirePixDestinationActive(Account destination) {
+        if (destination.getStatus() == AccountStatus.ENCERRADA) {
+            throw conflict("A conta de destino está encerrada e não pode receber PIX.");
+        }
+        if (destination.getStatus() == AccountStatus.BLOQUEADA) {
+            throw conflict("A conta de destino está bloqueada e não pode receber PIX.");
+        }
+    }
+
+    private void requireFinancialAccount(Account account) {
+        if (account.isAdministrator()) {
+            throw conflict("Contas administradoras não realizam operações financeiras.");
         }
     }
 

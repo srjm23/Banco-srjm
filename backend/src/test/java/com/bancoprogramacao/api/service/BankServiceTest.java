@@ -7,11 +7,14 @@ import static org.mockito.Mockito.when;
 import com.bancoprogramacao.api.domain.Account;
 import com.bancoprogramacao.api.domain.AccountStatus;
 import com.bancoprogramacao.api.domain.Client;
+import com.bancoprogramacao.api.domain.PixKey;
+import com.bancoprogramacao.api.domain.PixKeyType;
 import com.bancoprogramacao.api.dto.AccountCloseRequest;
 import com.bancoprogramacao.api.exception.BankBusinessException;
 import com.bancoprogramacao.api.repository.AccountRepository;
 import com.bancoprogramacao.api.repository.BankTransactionRepository;
 import com.bancoprogramacao.api.repository.ClientRepository;
+import com.bancoprogramacao.api.repository.PixKeyRepository;
 import com.bancoprogramacao.api.util.CheckDigitCalculator;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -35,6 +38,12 @@ class BankServiceTest {
     private ClientRepository clientRepository;
 
     @Mock
+    private PixKeyRepository pixKeyRepository;
+
+    @Mock
+    private SensitiveDataService sensitiveDataService;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
 
     private BankService bankService;
@@ -45,7 +54,10 @@ class BankServiceTest {
                 accountRepository,
                 transactionRepository,
                 clientRepository,
-                passwordEncoder
+                pixKeyRepository,
+                sensitiveDataService,
+                passwordEncoder,
+                "srjm"
         );
     }
 
@@ -76,6 +88,19 @@ class BankServiceTest {
                 .isInstanceOf(BankBusinessException.class)
                 .hasMessage("A conta só pode ser encerrada quando o saldo estiver zerado.");
         assertThat(account.getStatus()).isEqualTo(AccountStatus.ATIVA);
+    }
+
+    @Test
+    void refusesClosedAccountAsPixRecipient() {
+        Account destination = account("735921");
+        destination.close();
+        PixKey key = new PixKey(destination, PixKeyType.RANDOM, "PIXFECHADA01");
+        when(pixKeyRepository.findByValue("PIXFECHADA01")).thenReturn(Optional.of(key));
+        when(accountRepository.findByNumber("735921")).thenReturn(Optional.of(destination));
+
+        assertThatThrownBy(() -> bankService.getPixRecipient("PIXFECHADA01"))
+                .isInstanceOf(BankBusinessException.class)
+                .hasMessage("A conta de destino está encerrada e não pode receber PIX.");
     }
 
     private Account account(String number) {

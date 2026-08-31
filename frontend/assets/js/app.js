@@ -5,9 +5,15 @@
     var state = {
         account: null,
         activeReference: "",
-        transactions: []
+        transactions: [],
+        adminAccounts: [],
+        adminFilter: "ALL",
+        customerView: "overview",
+        statementMode: "full"
     };
     var toastTimer;
+    var pixLookupTimer;
+    var pixLookupSequence = 0;
 
     var accountBalance = document.getElementById("account-balance");
     var accountHolder = document.getElementById("account-holder");
@@ -16,14 +22,14 @@
     var accountNumber = document.getElementById("account-number");
     var accountDigit = document.getElementById("account-digit");
     var accountCreated = document.getElementById("account-created");
-    var statusSelect = document.getElementById("status-select");
-    var updateStatusButton = document.getElementById("update-status-button");
     var transactionsBody = document.getElementById("transactions-body");
     var textStatementLink = document.getElementById("text-statement-link");
     var statementGenerated = document.getElementById("statement-generated");
     var toast = document.getElementById("toast");
     var accountModal = document.getElementById("account-modal");
     var loginModal = document.getElementById("login-modal");
+    var forgotPasswordModal = document.getElementById("forgot-password-modal");
+    var resetPasswordModal = document.getElementById("reset-password-modal");
     var closeAccountModal = document.getElementById("close-account-modal");
     var closeAccountTrigger = document.getElementById("close-account-trigger");
     var loginTrigger = document.getElementById("login-trigger");
@@ -43,6 +49,7 @@
         bindInputMasks();
         updateCurrentAccountInputs();
         restoreSession();
+        openResetModalFromLink();
     }
 
     function bindEvents() {
@@ -69,7 +76,21 @@
                 return;
             }
             button.addEventListener("click", function () {
+                showCustomerView("operations", false);
                 activateOperation(action, true);
+            });
+        });
+
+        document.querySelectorAll("[data-customer-view]").forEach(function (link) {
+            link.addEventListener("click", function (event) {
+                event.preventDefault();
+                showCustomerView(link.dataset.customerView, true);
+            });
+        });
+
+        document.querySelectorAll("[data-open-customer-view]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                showCustomerView(button.dataset.openCustomerView, true);
             });
         });
 
@@ -80,13 +101,30 @@
         });
 
         document.getElementById("create-account-form").addEventListener("submit", createAccount);
+        document.querySelector("#create-account-form input[name='administrator']").addEventListener("change", updateAccountFormMode);
         document.getElementById("login-form").addEventListener("submit", login);
+        document.getElementById("forgot-password-trigger").addEventListener("click", openForgotPasswordModal);
+        document.getElementById("forgot-password-form").addEventListener("submit", requestPasswordReset);
+        document.getElementById("reset-password-form").addEventListener("submit", resetPassword);
         document.getElementById("deposit-form").addEventListener("submit", deposit);
-        document.getElementById("withdraw-form").addEventListener("submit", withdraw);
+        document.getElementById("payment-form").addEventListener("submit", pay);
+        document.getElementById("payment-barcode").addEventListener("input", updatePaymentBarcode);
         document.getElementById("pix-form").addEventListener("submit", sendPix);
+        document.querySelector("#pix-form input[name='destinationKey']").addEventListener("input", lookupPixRecipient);
+        document.querySelectorAll(".pix-key-create").forEach(function (button) {
+            button.addEventListener("click", function () { createPixKey(button.dataset.keyType, button); });
+        });
         document.getElementById("refresh-statement").addEventListener("click", refreshStatement);
         document.getElementById("refresh-admin").addEventListener("click", loadAdminAccounts);
-        updateStatusButton.addEventListener("click", updateStatus);
+        document.querySelectorAll("[data-admin-filter]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                state.adminFilter = button.dataset.adminFilter;
+                document.querySelectorAll("[data-admin-filter]").forEach(function (item) {
+                    item.classList.toggle("active", item === button);
+                });
+                renderAdminAccounts();
+            });
+        });
         closeAccountTrigger.addEventListener("click", openCloseAccountModal);
         document.getElementById("close-account-form").addEventListener("submit", closeActiveAccount);
     }
@@ -95,6 +133,12 @@
         document.querySelectorAll(".account-reference-input").forEach(function (input) {
             input.addEventListener("input", function () {
                 input.value = formatAccountReferenceInput(input.value);
+            });
+        });
+
+        document.querySelectorAll(".login-identifier-input").forEach(function (input) {
+            input.addEventListener("input", function () {
+                input.value = formatLoginIdentifier(input.value);
             });
         });
 
@@ -111,6 +155,17 @@
             return digits;
         }
         return digits.slice(0, -1) + "-" + digits.slice(-1);
+    }
+
+    function formatLoginIdentifier(value) {
+        var digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+        if (digits.length <= 8) {
+            return digits.length < 4 ? digits : digits.slice(0, -1) + "-" + digits.slice(-1);
+        }
+        return digits
+            .replace(/^(\d{3})(\d)/, "$1.$2")
+            .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+            .replace(/\.(\d{3})(\d)/, ".$1-$2");
     }
 
     function formatMoneyInput(value) {
@@ -168,6 +223,71 @@
         showToast("Sessão encerrada.", "success");
     }
 
+    function openForgotPasswordModal() {
+        closeAllModals();
+        forgotPasswordModal.classList.remove("hidden");
+        window.setTimeout(function () {
+            forgotPasswordModal.querySelector("input[name='account']").focus();
+        }, 20);
+    }
+
+    async function requestPasswordReset(event) {
+        event.preventDefault();
+        var form = event.currentTarget;
+        var button = form.querySelector("button[type='submit']");
+        setLoading(button, true);
+        try {
+            var response = await api("/auth/forgot-password", {
+                method: "POST",
+                body: JSON.stringify({
+                    account: form.elements.account.value.trim(),
+                    email: form.elements.email.value.trim()
+                })
+            });
+            form.reset();
+            closeAllModals();
+            showToast(response.message, "success");
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            setLoading(button, false);
+        }
+    }
+
+    function openResetModalFromLink() {
+        var token = new URLSearchParams(window.location.search).get("resetToken");
+        if (!token) return;
+        closeAllModals();
+        resetPasswordModal.querySelector("input[name='token']").value = token;
+        resetPasswordModal.classList.remove("hidden");
+    }
+
+    async function resetPassword(event) {
+        event.preventDefault();
+        var form = event.currentTarget;
+        if (form.elements.newPassword.value !== form.elements.confirmPassword.value) {
+            showToast("As senhas informadas não são iguais.", "error");
+            return;
+        }
+        var button = form.querySelector("button[type='submit']");
+        setLoading(button, true);
+        try {
+            var response = await api("/auth/reset-password", {
+                method: "POST",
+                body: JSON.stringify({ token: form.elements.token.value, newPassword: form.elements.newPassword.value })
+            });
+            form.reset();
+            window.history.replaceState({}, document.title, window.location.pathname);
+            closeAllModals();
+            openLoginModal();
+            showToast(response.message + " Entre com a nova senha.", "success");
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            setLoading(button, false);
+        }
+    }
+
     async function activateAuthenticatedAccount(account, silent) {
         state.account = account;
         state.activeReference = account.accountReference;
@@ -186,11 +306,16 @@
         state.account = null;
         state.activeReference = "";
         state.transactions = [];
+        state.adminAccounts = [];
+        state.adminFilter = "ALL";
+        state.customerView = "overview";
+        state.statementMode = "full";
         loginTrigger.classList.remove("hidden");
         logoutButton.classList.add("hidden");
         setAccountCreationVisibility(true);
         landingPage.classList.remove("hidden");
         authenticatedApp.classList.add("hidden");
+        authenticatedApp.classList.remove("administrator-view");
         document.getElementById("admin-nav-item").classList.add("hidden");
         document.getElementById("admin").classList.add("hidden");
         renderEmptyState();
@@ -238,15 +363,18 @@
     async function loadActiveAccount(reference, silent) {
         var normalizedReference = reference.trim();
         try {
-            var results = await Promise.all([
-                api("/accounts/" + encodeURIComponent(normalizedReference)),
-                api("/accounts/" + encodeURIComponent(normalizedReference) + "/statement?limit=100&order=desc")
-            ]);
-            state.account = results[0];
-            state.transactions = results[1].transactions || [];
+            state.account = await api("/accounts/" + encodeURIComponent(normalizedReference));
+            if (state.account.administrator) {
+                state.transactions = [];
+            } else {
+                var statement = await api("/accounts/" + encodeURIComponent(normalizedReference) + "/statement?limit=500&order=desc");
+                state.transactions = statement.transactions || [];
+            }
             state.activeReference = state.account.accountReference;
             renderAccount();
             renderTransactions();
+            if (!state.account.administrator) showCustomerView(state.customerView, false);
+            if (!state.account.administrator) await loadPixKeys();
             if (!silent) {
                 showToast("Conta atualizada.", "success");
             }
@@ -274,8 +402,6 @@
         accountNumber.textContent = "—";
         accountDigit.textContent = "—";
         accountCreated.textContent = "—";
-        statusSelect.disabled = true;
-        updateStatusButton.disabled = true;
         closeAccountTrigger.disabled = true;
         textStatementLink.href = "#";
         statementGenerated.textContent = "Data e hora serão atualizadas ao consultar.";
@@ -303,21 +429,19 @@
         accountCreated.textContent = formatDate(account.createdAt);
         accountStatus.textContent = formatStatus(account.status);
         accountStatus.className = "status-pill " + statusClass(account.status);
-        statusSelect.value = account.status;
-        statusSelect.disabled = account.status === "ENCERRADA";
-        updateStatusButton.disabled = account.status === "ENCERRADA";
         closeAccountTrigger.disabled = account.status !== "ATIVA" || Number(account.balance) !== 0;
         textStatementLink.href = API_ROOT + "/accounts/" + encodeURIComponent(account.accountReference) + "/statement/text";
         statementGenerated.textContent = "Atualizado em " + formatDateTime(new Date().toISOString());
         document.querySelectorAll(".statement-download").forEach(function (link) {
             link.href = API_ROOT + "/accounts/" + encodeURIComponent(account.accountReference)
-                + "/statement/download?format=" + encodeURIComponent(link.dataset.format) + "&limit=100";
+                + "/statement/download?format=" + encodeURIComponent(link.dataset.format) + "&limit=500";
             link.classList.remove("disabled");
         });
         updateCurrentAccountInputs();
         setOperationAvailability(account.status === "ATIVA");
         document.getElementById("admin-nav-item").classList.toggle("hidden", !account.administrator);
         document.getElementById("admin").classList.toggle("hidden", !account.administrator);
+        authenticatedApp.classList.toggle("administrator-view", account.administrator);
     }
 
     async function loadAdminAccounts() {
@@ -326,32 +450,51 @@
         }
         var body = document.getElementById("admin-accounts-body");
         try {
-            var accounts = await api("/accounts/admin/active");
+            var overview = await api("/accounts/admin/all");
+            var accounts = overview.accounts || [];
+            state.adminAccounts = accounts;
+            document.getElementById("admin-total-balance").textContent = formatCurrency(overview.totalBalance);
+            document.getElementById("admin-total-customers").textContent = String(overview.totalCustomers || 0);
             document.getElementById("admin-generated").textContent = "Atualizado em " + formatDateTime(new Date().toISOString());
-            if (!accounts.length) {
-                body.innerHTML = "<tr class='empty-row'><td colspan='4'>Nenhuma conta ativa.</td></tr>";
-                return;
-            }
-            body.innerHTML = accounts.map(function (account) {
-                return "<tr>"
-                    + "<td><strong>" + escapeHtml(account.accountReference) + "</strong></td>"
-                    + "<td>" + escapeHtml(account.holderName) + "</td>"
-                    + "<td>" + escapeHtml(formatDateTime(account.createdAt)) + "</td>"
-                    + "<td class='balance-after'>" + escapeHtml(formatCurrency(account.balance)) + "</td>"
-                    + "</tr>";
-            }).join("");
+            renderAdminAccounts();
         } catch (error) {
             showToast(error.message, "error");
         }
     }
 
+    function renderAdminAccounts() {
+        var body = document.getElementById("admin-accounts-body");
+        var accounts = state.adminFilter === "ALL"
+            ? state.adminAccounts
+            : state.adminAccounts.filter(function (account) { return account.status === state.adminFilter; });
+        if (!accounts.length) {
+            body.innerHTML = "<tr class='empty-row'><td colspan='7'>Nenhuma conta encontrada neste filtro.</td></tr>";
+            return;
+        }
+        body.innerHTML = accounts.map(function (account) {
+                return "<tr>"
+                    + "<td><strong>" + escapeHtml(account.accountReference) + "</strong></td>"
+                    + "<td>" + escapeHtml(account.holderName) + "</td>"
+                    + "<td>" + escapeHtml(account.email || "—") + "<small class='table-secondary'>" + escapeHtml(account.phone || "—") + "</small></td>"
+                    + "<td><code class='encrypted-cpf'>" + escapeHtml(account.maskedCpf || "—") + "</code></td>"
+                    + "<td><span class='admin-status-pill " + statusClass(account.status) + "'>" + escapeHtml(formatStatus(account.status)) + "</span></td>"
+                    + "<td>" + escapeHtml(formatDateTime(account.createdAt)) + "</td>"
+                    + "<td class='balance-after'>" + escapeHtml(formatCurrency(account.balance)) + "</td>"
+                    + "</tr>";
+            }).join("");
+    }
+
     function renderTransactions() {
-        if (!state.transactions.length) {
+        renderBalanceRecentTransactions();
+        var visibleTransactions = state.statementMode === "recent"
+            ? state.transactions.slice(0, 3)
+            : state.transactions;
+        if (!visibleTransactions.length) {
             transactionsBody.innerHTML = "<tr class='empty-row'><td colspan='4'>Ainda não existem movimentações nesta conta.</td></tr>";
             return;
         }
 
-        transactionsBody.innerHTML = state.transactions.map(function (transaction) {
+        transactionsBody.innerHTML = visibleTransactions.map(function (transaction) {
             var isCredit = transaction.direction === "C";
             var signal = isCredit ? "+" : "−";
             var typeLabel = transaction.transactionType === "PIX"
@@ -368,6 +511,52 @@
                 + "<td class='balance-after'>" + formatCurrency(transaction.balanceAfter) + "</td>"
                 + "</tr>";
         }).join("");
+    }
+
+    function renderBalanceRecentTransactions() {
+        var output = document.getElementById("balance-recent-list");
+        if (!output) return;
+        if (!state.transactions.length) {
+            output.innerHTML = "<p>Nenhuma movimentação recente.</p>";
+            return;
+        }
+        output.innerHTML = state.transactions.slice(0, 3).map(function (transaction) {
+            var credit = transaction.direction === "C";
+            var label = transaction.transactionType === "PIX"
+                ? (credit ? "PIX recebido" : "PIX enviado")
+                : capitalize(transaction.transactionType.toLowerCase());
+            return "<div class='balance-recent-item " + (credit ? "credit" : "debit") + "'>"
+                + "<i>" + (credit ? "↗" : "↙") + "</i>"
+                + "<span>" + escapeHtml(label) + "<small>" + escapeHtml(formatDateTime(transaction.createdAt)) + "</small></span>"
+                + "<b>" + (credit ? "+ " : "− ") + escapeHtml(formatCurrency(transaction.amount)) + "</b>"
+                + "</div>";
+        }).join("");
+    }
+
+    function showCustomerView(view, scroll) {
+        if (!view || (state.account && state.account.administrator)) return;
+
+        state.customerView = view;
+        state.statementMode = view === "recent" ? "recent" : "full";
+        var targetSection = view === "recent" || view === "statement" ? "statement" : view;
+
+        document.querySelectorAll("[data-customer-section]").forEach(function (section) {
+            section.classList.toggle("hidden", section.dataset.customerSection !== targetSection);
+        });
+        document.querySelectorAll("[data-customer-view]").forEach(function (link) {
+            link.classList.toggle("active", link.dataset.customerView === view);
+        });
+
+        var title = document.getElementById("statement-title");
+        var actions = document.querySelector("#statement .statement-actions");
+        if (title) title.textContent = view === "recent" ? "Últimas 3 transações" : "Extrato bancário completo";
+        if (actions) actions.classList.toggle("hidden", view === "recent");
+        renderTransactions();
+
+        if (scroll) {
+            var target = document.querySelector("[data-customer-section='" + targetSection + "']");
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
     }
 
     function updateCurrentAccountInputs() {
@@ -427,7 +616,7 @@
         await submitOperation(form, "/transactions/deposits", payload, "Depósito realizado com sucesso.");
     }
 
-    async function withdraw(event) {
+    async function pay(event) {
         event.preventDefault();
         if (!ensureActiveAccount()) {
             return;
@@ -436,10 +625,52 @@
         var form = event.currentTarget;
         var payload = {
             account: state.activeReference,
+            barcode: form.elements.barcode.value.replace(/\D/g, ""),
             amount: normalizeAmount(form.elements.amount.value),
+            description: form.elements.description.value.trim(),
             password: form.elements.password.value
         };
-        await submitOperation(form, "/transactions/withdrawals", payload, "Saque realizado com sucesso.");
+        if (payload.barcode.length !== 44) {
+            showToast("O código de barras deve possuir exatamente 44 dígitos.", "error");
+            return;
+        }
+        await submitOperation(form, "/transactions/payments", payload, "Pagamento realizado com sucesso.");
+        updatePaymentBarcode({ currentTarget: form.elements.barcode });
+    }
+
+    function updatePaymentBarcode(event) {
+        var input = event.currentTarget;
+        var barcode = input.value.replace(/\D/g, "").slice(0, 44);
+        var output = document.getElementById("payment-digitable-line");
+        var feedback = document.getElementById("payment-barcode-feedback");
+        input.value = barcode;
+        if (barcode.length !== 44) {
+            output.value = "";
+            feedback.textContent = barcode.length + " de 44 dígitos informados.";
+            return;
+        }
+        var line = toDigitableLine(barcode);
+        output.value = line.slice(0, 16) + "  " + line.slice(16, 32) + "  " + line.slice(32);
+        feedback.textContent = "Linha digitável gerada com 47 dígitos.";
+    }
+
+    function toDigitableLine(barcode) {
+        var field1 = barcode.slice(0, 4) + barcode.slice(19, 24);
+        var field2 = barcode.slice(24, 34);
+        var field3 = barcode.slice(34, 44);
+        return field1 + modulo10(field1) + field2 + modulo10(field2) + field3 + modulo10(field3)
+            + barcode.slice(4, 5) + barcode.slice(5, 19);
+    }
+
+    function modulo10(value) {
+        var sum = 0;
+        var multiplier = 2;
+        for (var index = value.length - 1; index >= 0; index--) {
+            var product = Number(value.charAt(index)) * multiplier;
+            sum += product > 9 ? product - 9 : product;
+            multiplier = multiplier === 2 ? 1 : 2;
+        }
+        return (10 - (sum % 10)) % 10;
     }
 
     async function sendPix(event) {
@@ -451,11 +682,80 @@
         var form = event.currentTarget;
         var payload = {
             sourceAccount: state.activeReference,
-            destinationAccount: form.elements.destinationAccount.value.trim(),
+            destinationKey: form.elements.destinationKey.value.trim(),
             amount: normalizeAmount(form.elements.amount.value),
             password: form.elements.password.value
         };
         await submitOperation(form, "/transactions/pix", payload, "PIX enviado com sucesso.");
+        document.getElementById("pix-recipient-feedback").textContent = "";
+    }
+
+    function lookupPixRecipient(event) {
+        window.clearTimeout(pixLookupTimer);
+        var key = event.currentTarget.value.trim();
+        var output = document.getElementById("pix-recipient-feedback");
+        var sequence = ++pixLookupSequence;
+        output.className = "pix-recipient-feedback";
+        if (key.length < 3) {
+            output.textContent = "";
+            return;
+        }
+        output.textContent = "Verificando chave PIX...";
+        pixLookupTimer = window.setTimeout(async function () {
+            try {
+                var recipient = await api("/transactions/pix/recipient?key=" + encodeURIComponent(key));
+                if (sequence !== pixLookupSequence) return;
+                output.className = "pix-recipient-feedback found";
+                output.textContent = "Destinatário: " + recipient.holderName;
+            } catch (error) {
+                if (sequence !== pixLookupSequence) return;
+                output.className = "pix-recipient-feedback not-found";
+                output.textContent = "Chave PIX não encontrada ou indisponível.";
+            }
+        }, 450);
+    }
+
+    async function loadPixKeys() {
+        var output = document.getElementById("pix-keys-list");
+        if (!state.activeReference) {
+            output.textContent = "Nenhuma chave cadastrada.";
+            return;
+        }
+        try {
+            var keys = await api("/accounts/" + encodeURIComponent(state.activeReference) + "/pix-keys");
+            output.textContent = keys.length
+                ? keys.map(function (key) { return keyTypeLabel(key.type) + ": " + key.value; }).join(" · ")
+                : "Nenhuma chave cadastrada.";
+            document.querySelectorAll(".pix-key-create").forEach(function (button) {
+                button.disabled = state.account.status !== "ATIVA" || keys.some(function (key) { return key.type === button.dataset.keyType; });
+            });
+        } catch (error) {
+            output.textContent = "Não foi possível carregar as chaves.";
+        }
+    }
+
+    async function createPixKey(type, button) {
+        if (!ensureActiveAccount()) return;
+        setLoading(button, true);
+        try {
+            var key = await api("/accounts/" + encodeURIComponent(state.activeReference) + "/pix-keys", {
+                method: "POST",
+                body: JSON.stringify({ type: type })
+            });
+            showToast("Chave PIX criada: " + key.value, "success");
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            setLoading(button, false);
+            await loadPixKeys();
+        }
+    }
+
+    function keyTypeLabel(type) {
+        if (type === "EMAIL") return "E-mail";
+        if (type === "PHONE") return "Telefone";
+        if (type === "CPF") return "CPF";
+        return "Aleatória";
     }
 
     async function submitOperation(form, endpoint, payload, successMessage) {
@@ -480,14 +780,17 @@
     async function createAccount(event) {
         event.preventDefault();
         var form = event.currentTarget;
-        var initialDeposit = form.elements.initialDeposit.value.trim();
         var payload = {
             holderName: form.elements.holderName.value.trim(),
             password: form.elements.password.value,
             administrator: form.elements.administrator.checked
         };
-        if (initialDeposit) {
-            payload.initialDeposit = normalizeAmount(initialDeposit);
+        if (payload.administrator) {
+            payload.administratorToken = form.elements.administratorToken.value;
+        } else {
+            payload.email = form.elements.email.value.trim();
+            payload.phone = form.elements.phone.value.replace(/\D/g, "");
+            payload.cpf = form.elements.cpf.value.replace(/\D/g, "");
         }
 
         var submitButton = form.querySelector("button[type='submit']");
@@ -498,6 +801,7 @@
                 body: JSON.stringify(payload)
             });
             form.reset();
+            updateAccountFormMode();
             closeAllModals();
             openLoginModal(account.accountReference);
             showToast("Conta " + account.accountReference + " criada. Use-a para entrar.", "success");
@@ -505,25 +809,6 @@
             showToast(error.message, "error");
         } finally {
             setLoading(submitButton, false);
-        }
-    }
-
-    async function updateStatus() {
-        if (!ensureActiveAccount()) {
-            return;
-        }
-        setLoading(updateStatusButton, true);
-        try {
-            await api("/accounts/" + encodeURIComponent(state.activeReference) + "/status", {
-                method: "PATCH",
-                body: JSON.stringify({ status: statusSelect.value })
-            });
-            await loadActiveAccount(state.activeReference, true);
-            showToast("Status da conta atualizado.", "success");
-        } catch (error) {
-            showToast(error.message, "error");
-        } finally {
-            setLoading(updateStatusButton, false);
         }
     }
 
@@ -568,10 +853,26 @@
 
     function openAccountModal() {
         closeAllModals();
+        updateAccountFormMode();
         accountModal.classList.remove("hidden");
         window.setTimeout(function () {
             document.querySelector("#create-account-form input[name='holderName']").focus();
         }, 20);
+    }
+
+    function updateAccountFormMode() {
+        var form = document.getElementById("create-account-form");
+        var administrator = form.elements.administrator.checked;
+        form.querySelectorAll(".customer-account-field").forEach(function (field) {
+            field.classList.toggle("hidden", administrator);
+            field.querySelector("input").required = !administrator;
+        });
+        var tokenField = form.querySelector(".administrator-token-field");
+        tokenField.classList.toggle("hidden", !administrator);
+        tokenField.querySelector("input").required = administrator;
+        document.getElementById("account-modal-title").textContent = administrator
+            ? "Crie uma conta administradora."
+            : "Abra sua conta em poucos passos.";
     }
 
     function openLoginModal(accountReference) {
