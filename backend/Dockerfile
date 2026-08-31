@@ -1,17 +1,23 @@
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM cgr.dev/chainguard/maven:latest AS build
 
-WORKDIR /workspace
+WORKDIR /home/build/workspace
 
-COPY pom.xml .
+COPY --chown=65532:65532 pom.xml .
 RUN mvn -B -q -DskipTests dependency:go-offline
 
-COPY src ./src
+COPY --chown=65532:65532 src ./src
+RUN mvn -B -q -Dtest=BankServiceTest -DargLine=-Dnet.bytebuddy.experimental=true test
 RUN mvn -B -q -DskipTests package
 
-FROM eclipse-temurin:17-jre-alpine
+FROM cgr.dev/chainguard/jre:latest-dev
+
+USER root
+RUN apk add --no-cache fontconfig ttf-dejavu
 
 WORKDIR /app
-COPY --from=build /workspace/target/banco-srjm-api-*.jar app.jar
+COPY --from=build --chown=65532:65532 /home/build/workspace/target/banco-srjm-api-*.jar app.jar
+
+USER 65532
 
 EXPOSE 8080
 

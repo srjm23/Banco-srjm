@@ -476,7 +476,7 @@
                     + "<td><strong>" + escapeHtml(account.accountReference) + "</strong></td>"
                     + "<td>" + escapeHtml(account.holderName) + "</td>"
                     + "<td>" + escapeHtml(account.email || "—") + "<small class='table-secondary'>" + escapeHtml(account.phone || "—") + "</small></td>"
-                    + "<td><code class='encrypted-cpf'>" + escapeHtml(account.encryptedCpf || "—") + "</code></td>"
+                    + "<td><code class='encrypted-cpf'>" + escapeHtml(account.maskedCpf || "—") + "</code></td>"
                     + "<td><span class='admin-status-pill " + statusClass(account.status) + "'>" + escapeHtml(formatStatus(account.status)) + "</span></td>"
                     + "<td>" + escapeHtml(formatDateTime(account.createdAt)) + "</td>"
                     + "<td class='balance-after'>" + escapeHtml(formatCurrency(account.balance)) + "</td>"

@@ -280,7 +280,7 @@ public class BankService {
         requireFinancialAccount(source);
         requireFinancialAccount(destination);
         requireActive(source);
-        requireActive(destination);
+        requirePixDestinationActive(destination);
         requireValidPassword(source, request.password());
         if (money(source.getBalance()).compareTo(money(request.amount())) < 0) {
             throw invalid("Saldo insuficiente para concluir o PIX.");
@@ -367,12 +367,21 @@ public class BankService {
     public Account getPixRecipient(String destinationKey) {
         Account destination = loadAndValidateAccount(resolvePixDestination(destinationKey));
         requireFinancialAccount(destination);
-        requireActive(destination);
+        requirePixDestinationActive(destination);
         return destination;
     }
 
     public String getPixKeyDisplayValue(PixKey key) {
         return key.getType() == PixKeyType.CPF ? sensitiveDataService.decrypt(key.getValue()) : key.getValue();
+    }
+
+    public String getMaskedCpf(Account account) {
+        String encryptedCpf = account.getClient().getCpfEncrypted();
+        if (encryptedCpf == null || encryptedCpf.isBlank()) {
+            return null;
+        }
+        String cpf = sensitiveDataService.decrypt(encryptedCpf);
+        return cpf.substring(0, 3) + ".***.***-**";
     }
 
     private boolean isValidCpf(String cpf) {
@@ -454,6 +463,15 @@ public class BankService {
         }
         if (account.getStatus() == AccountStatus.ENCERRADA) {
             throw conflict("A conta está encerrada e não pode realizar movimentações.");
+        }
+    }
+
+    private void requirePixDestinationActive(Account destination) {
+        if (destination.getStatus() == AccountStatus.ENCERRADA) {
+            throw conflict("A conta de destino está encerrada e não pode receber PIX.");
+        }
+        if (destination.getStatus() == AccountStatus.BLOQUEADA) {
+            throw conflict("A conta de destino está bloqueada e não pode receber PIX.");
         }
     }
 

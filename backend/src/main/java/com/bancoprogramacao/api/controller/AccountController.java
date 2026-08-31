@@ -112,7 +112,7 @@ public class AccountController {
                         account.getClient().getFullName(),
                         account.getClient().getEmail(),
                         account.getClient().getPhone(),
-                        account.getClient().getCpfEncrypted(),
+                        bankService.getMaskedCpf(account),
                         account.getStatus(),
                         account.getCreatedAt(),
                         account.getBalance()

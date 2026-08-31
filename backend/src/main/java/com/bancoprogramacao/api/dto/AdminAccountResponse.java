@@ -9,7 +9,7 @@ public record AdminAccountResponse(
         String holderName,
         String email,
         String phone,
-        String encryptedCpf,
+        String maskedCpf,
         AccountStatus status,
         Instant createdAt,
         BigDecimal balance
